@@ -63,6 +63,7 @@ export interface ActionProposal {
   approvalReason?: string;
   status: ProposalStatus;
   createdAt: string;
+  executedAt?: string;
 }
 
 export interface AuditEntry {

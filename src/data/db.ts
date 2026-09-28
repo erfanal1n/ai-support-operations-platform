@@ -15,6 +15,10 @@ export class MemoryStore {
   public readonly proposals: Map<string, ActionProposal> = new Map();
   public readonly refundProposalKeys = new Map<string, { fingerprint: string; proposal: ActionProposal }>();
   public readonly refundDecisionKeys = new Map<string, { fingerprint: string; proposal: ActionProposal }>();
+  public readonly refundExecutionKeys = new Map<
+    string,
+    { fingerprint: string; proposal: ActionProposal; invoice: InvoiceRecord }
+  >();
   public readonly auditLogs: AuditEntry[] = [];
 
   constructor() {
