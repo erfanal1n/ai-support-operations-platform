@@ -34,3 +34,15 @@ export class PolicyMismatchError extends AppError {
     super(`Operation rejected by policy verification: ${reason}`, 'E_POLICY_MISMATCH', 422);
   }
 }
+
+export class IdempotencyConflictError extends AppError {
+  constructor() {
+    super('Idempotency key was already used for a different request', 'E_IDEMPOTENCY_CONFLICT', 409);
+  }
+}
+
+export class StateConflictError extends AppError {
+  constructor(message: string) {
+    super(message, 'E_STATE_CONFLICT', 409);
+  }
+}
