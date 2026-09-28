@@ -168,8 +168,7 @@ function TicketDetail({ context, operatorId, actionPending, onOperatorChange, on
       <section className="message-card">
         <div className="section-heading">
           <div>
-            <span className="section-kicker">CUSTOMER</span>
-            <h3>Message</h3>
+            <h3>Customer message</h3>
           </div>
           <span className="message-time"><Icon name="clock" /> {relativeTime(ticket.createdAt)}</span>
         </div>
@@ -179,7 +178,7 @@ function TicketDetail({ context, operatorId, actionPending, onOperatorChange, on
       <section className="evidence-grid">
         <div className="evidence-card">
           <div className="section-heading compact">
-            <div className="heading-with-icon"><span className="icon-tile invoice"><Icon name="receipt" /></span><div><span className="section-kicker">ACCOUNT RECORDS</span><h3>Invoices</h3></div></div>
+            <h3>Invoices</h3>
             <span className="count-pill">{invoices.length}</span>
           </div>
           {invoices.length === 0 ? <p className="empty-note">No invoices found for this account.</p> : (
@@ -196,7 +195,7 @@ function TicketDetail({ context, operatorId, actionPending, onOperatorChange, on
 
         <div className="evidence-card policy-card">
           <div className="section-heading compact">
-            <div className="heading-with-icon"><span className="icon-tile policy"><Icon name="shield" /></span><div><span className="section-kicker">POLICY</span><h3>Matched policy</h3></div></div>
+            <h3>Matched policy</h3>
             <span className="count-pill">{relevantPolicies.length}</span>
           </div>
           {relevantPolicies.length === 0 ? <p className="empty-note">No policy phrase matched. Review the request manually.</p> : (
@@ -205,7 +204,7 @@ function TicketDetail({ context, operatorId, actionPending, onOperatorChange, on
                 <article className="policy-evidence" key={policy.id}>
                   <div className="policy-title-row"><strong>{policy.title}</strong></div>
                   <p>{policy.summary}</p>
-                  <div className="match-phrases">{policy.matchedKeywords.map((keyword) => <span key={keyword}>{keyword}</span>)}</div>
+                  <p className="match-phrases">Matched terms: {policy.matchedKeywords.join(', ')}</p>
                   <details><summary>Read policy text</summary><p>{policy.fullText}</p></details>
                 </article>
               ))}
@@ -215,13 +214,13 @@ function TicketDetail({ context, operatorId, actionPending, onOperatorChange, on
       </section>
 
       <section className="action-card">
-        <div className="section-heading compact"><div><span className="section-kicker">REFUND</span><h3>Refund proposal</h3></div></div>
+        <div className="section-heading compact"><h3>Refund proposal</h3></div>
         {canProposeRefund ? (
           <form className="proposal-form" onSubmit={submitProposal}>
             <label>Invoice<select value={invoiceId} onChange={(event) => setInvoiceId(event.target.value)}>{refundableInvoices.map((invoice) => <option key={invoice.id} value={invoice.id}>{invoiceLabel(invoices, invoice.id)} · {formatMoney(invoice.amountCents - invoice.refundedAmountCents, invoice.currency)} remaining</option>)}</select></label>
             <label>Matched policy<select value={policyId} onChange={(event) => setPolicyId(event.target.value)}>{refundPolicies.map((policy) => <option key={policy.id} value={policy.id}>{policy.title}</option>)}</select></label>
             <label>Refund amount<input type="number" min="0.01" max={(remainingCents / 100).toFixed(2)} step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} /></label>
-            <button className="primary-action" type="submit" disabled={actionPending || !amount || Number(amount) <= 0 || Number(amount) * 100 > remainingCents}>Submit proposal</button>
+            <button className="primary-action" type="submit" disabled={actionPending || !amount || Number(amount) <= 0 || Number(amount) * 100 > remainingCents}>Create proposal</button>
           </form>
         ) : (
           <p className="empty-note">{refundPolicies.length === 0
@@ -235,7 +234,7 @@ function TicketDetail({ context, operatorId, actionPending, onOperatorChange, on
 
         {proposals.length > 0 && (
           <div className="proposal-history">
-            <div className="section-heading compact"><div><span className="section-kicker">ACTION HISTORY</span><h3>Refund proposals</h3></div><span className="count-pill">{proposals.length}</span></div>
+            <div className="section-heading compact"><h3>Previous proposals</h3><span className="count-pill">{proposals.length}</span></div>
               {proposals.map((proposal) => (
               <article className="proposal-item" key={proposal.id}>
                 <div className="proposal-row"><span>Refund request · {relativeTime(proposal.createdAt)}</span><strong className={`proposal-status ${proposal.status.toLowerCase()}`}>{proposal.status.toLowerCase()}</strong><b>{formatMoney(proposal.amountCents ?? 0, invoices.find((invoice) => invoice.id === proposal.targetInvoiceId)?.currency ?? 'USD')}</b></div>
@@ -248,14 +247,13 @@ function TicketDetail({ context, operatorId, actionPending, onOperatorChange, on
                   </div>
                 )}
                 {(proposal.status === 'APPROVED' || (proposal.status === 'PROPOSED' && !proposal.requiresHumanApproval)) && (
-                  <div className="proposal-actions"><button className="primary-action" type="button" disabled={actionPending} onClick={() => onExecute(proposal.id)}>Mark invoice refunded</button></div>
+                  <div className="proposal-actions"><button className="primary-action" type="button" disabled={actionPending} onClick={() => onExecute(proposal.id)}>Record refund</button></div>
                 )}
                 {proposal.status === 'EXECUTED' && <span className="execution-note">Refund recorded{proposal.executedAt ? ` · ${relativeTime(proposal.executedAt)}` : ''}</span>}
               </article>
             ))}
           </div>
         )}
-        <p className="action-disclaimer">Updates the invoice record.</p>
       </section>
     </div>
   );
@@ -336,10 +334,9 @@ export default function App() {
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <div className="brand-lockup"><span className="brand-mark" aria-hidden="true">SD</span><span className="brand-name">Support desk<small>OPERATIONS</small></span></div>
+        <div className="brand-lockup"><span className="brand-name">Support Desk</span></div>
 
         <nav className="side-nav" aria-label="Main navigation">
-          <span className="nav-label">WORK</span>
           <button className={`nav-link${filter === 'all' ? ' active' : ''}`} aria-pressed={filter === 'all'} type="button" onClick={() => setFilter('all')}><Icon name="inbox" /><span>Case queue</span><span className="nav-count">{tickets.length}</span></button>
           <button className={`nav-link${filter === 'pending_approval' ? ' active' : ''}`} aria-pressed={filter === 'pending_approval'} type="button" onClick={() => setFilter(filter === 'pending_approval' ? 'all' : 'pending_approval')}><Icon name="clock" /><span>Approvals</span><span className="nav-count">{pendingCount}</span></button>
         </nav>
@@ -348,7 +345,7 @@ export default function App() {
 
       <main className="main-area">
         <header className="page-header">
-          <div><p className="breadcrumb">Support desk <span>/</span> Cases</p><h1>Case queue</h1><p className="page-subtitle">Review billing requests with their account and policy records.</p></div>
+          <div><h1>Cases</h1></div>
         </header>
 
         {error && <div className="error-banner" role="alert">{error}<button type="button" onClick={() => setError('')}>Dismiss</button></div>}
@@ -361,7 +358,7 @@ export default function App() {
 
         <section className="workbench" aria-label="Support cases">
           <div className="queue-panel panel">
-            <div className="panel-heading queue-heading"><div><span className="section-kicker">INBOX</span><h2>Cases <span className="heading-count">{visibleTickets.length}</span></h2></div></div>
+            <div className="panel-heading queue-heading"><div><h2>Queue <span className="heading-count">{visibleTickets.length}</span></h2></div></div>
             <label className="search-box"><Icon name="search" /><input aria-label="Search cases and customers" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search cases" /></label>
             <div className="queue-tabs"><button className={filter === 'all' ? 'chosen' : ''} aria-pressed={filter === 'all'} onClick={() => setFilter('all')} type="button">All cases</button><button className={filter === 'pending_approval' ? 'chosen' : ''} aria-pressed={filter === 'pending_approval'} onClick={() => setFilter('pending_approval')} type="button">Awaiting approval</button></div>
             <div className="ticket-list" aria-live="polite">
