@@ -128,7 +128,7 @@ pnpm eval:retrieval
 
 `pnpm eval:retrieval` runs the six synthetic scenarios using the configured retrieval mode. The phrase-search baseline finds the expected policy in 5 of 6 scenarios at `k=3` (recall@3: 83.3%). This small fixture set is a baseline, not a production quality claim.
 
-The PostgreSQL repository checks run when `TEST_DATABASE_URL` is set. Point `DATABASE_URL` and `TEST_DATABASE_URL` at a disposable `support_ops_test` database, run `pnpm db:migrate`, then `pnpm test`. The checks verify ticket and audit persistence, session revocation, and concurrent login attempts. GitHub Actions starts a temporary PostgreSQL database and runs the migrations before the suite.
+The PostgreSQL repository checks run when `TEST_DATABASE_URL` is set. Point `DATABASE_URL` and `TEST_DATABASE_URL` at a disposable `support_ops_test` database, run `pnpm db:migrate`, then `pnpm test`. The checks cover ticket and audit persistence, session revocation, concurrent login attempts, and the refund proposal, approval, and execution flow with duplicate requests. GitHub Actions starts a temporary PostgreSQL database and runs the migrations before the suite.
 
 ## Current limits
 
