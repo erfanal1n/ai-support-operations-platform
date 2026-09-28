@@ -4,11 +4,10 @@ import type { TicketContext, TicketStatus, TicketSummary } from './types';
 
 type QueueFilter = 'all' | 'pending_approval';
 
-function Icon({ name }: { name: 'inbox' | 'search' | 'chevron' | 'receipt' | 'shield' | 'clock' }) {
+function Icon({ name }: { name: 'inbox' | 'search' | 'receipt' | 'shield' | 'clock' }) {
   const paths = {
     inbox: <><path d="M4 4h16v12h-4l-2 3h-4l-2-3H4z" /><path d="M4 12h5l2 2h2l2-2h5" /></>,
     search: <><circle cx="11" cy="11" r="6" /><path d="m16 16 4 4" /></>,
-    chevron: <path d="m9 18 6-6-6-6" />,
     receipt: <><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z" /><path d="M9 8h6M9 12h6" /></>,
     shield: <><path d="M12 3 19 6v5c0 4.5-3 7.5-7 10-4-2.5-7-5.5-7-10V6z" /><path d="m9 12 2 2 4-4" /></>,
     clock: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>,
@@ -28,6 +27,14 @@ function formatMoney(amountCents: number, currency: string): string {
 function invoiceLabel(invoices: TicketContext['invoices'], invoiceId?: string): string {
   const index = invoices.findIndex((invoice) => invoice.id === invoiceId);
   return index < 0 ? 'Account invoice' : `Invoice ${index + 1}`;
+}
+
+function approvalReasonText(reason: string): string {
+  return reason
+    .split(',')
+    .map((item) => item.trim().replaceAll('_', ' '))
+    .map((item) => item.charAt(0).toUpperCase() + item.slice(1))
+    .join('; ');
 }
 
 function relativeTime(timestamp: string): string {
@@ -108,7 +115,6 @@ interface TicketDetailProps {
 
 function TicketDetail({ context, operatorId, actionPending, onOperatorChange, onPropose, onDecision, onExecute }: TicketDetailProps) {
   const { ticket, customer, invoices, relevantPolicies, proposals } = context;
-  const proposedTotal = proposals.reduce((total, proposal) => total + (proposal.amountCents ?? 0), 0);
   const refundableInvoices = invoices.filter((invoice) => invoice.status !== 'disputed' && invoice.amountCents > invoice.refundedAmountCents);
   const refundPolicies = relevantPolicies.filter((policy) => policy.category === 'refund');
   const [invoiceId, setInvoiceId] = useState(refundableInvoices[0]?.id ?? '');
@@ -156,14 +162,14 @@ function TicketDetail({ context, operatorId, actionPending, onOperatorChange, on
           <strong>{customer.name}</strong>
         </div>
         <span className={`tier-pill ${customer.tier}`}>{customer.tier}</span>
-        <span className="customer-tenure"><b>{customer.tenureDays}d</b> tenure</span>
+        <span className="customer-tenure">Customer for <b>{customer.tenureDays} days</b></span>
       </section>
 
       <section className="message-card">
         <div className="section-heading">
           <div>
-            <span className="section-kicker">MESSAGE</span>
-            <h3>Customer message</h3>
+            <span className="section-kicker">CUSTOMER</span>
+            <h3>Message</h3>
           </div>
           <span className="message-time"><Icon name="clock" /> {relativeTime(ticket.createdAt)}</span>
         </div>
@@ -190,7 +196,7 @@ function TicketDetail({ context, operatorId, actionPending, onOperatorChange, on
 
         <div className="evidence-card policy-card">
           <div className="section-heading compact">
-            <div className="heading-with-icon"><span className="icon-tile policy"><Icon name="shield" /></span><div><span className="section-kicker">POLICY</span><h3>Matched evidence</h3></div></div>
+            <div className="heading-with-icon"><span className="icon-tile policy"><Icon name="shield" /></span><div><span className="section-kicker">POLICY</span><h3>Matched policy</h3></div></div>
             <span className="count-pill">{relevantPolicies.length}</span>
           </div>
           {relevantPolicies.length === 0 ? <p className="empty-note">No policy phrase matched. Review the request manually.</p> : (
@@ -233,7 +239,7 @@ function TicketDetail({ context, operatorId, actionPending, onOperatorChange, on
               {proposals.map((proposal) => (
               <article className="proposal-item" key={proposal.id}>
                 <div className="proposal-row"><span>Refund request · {relativeTime(proposal.createdAt)}</span><strong className={`proposal-status ${proposal.status.toLowerCase()}`}>{proposal.status.toLowerCase()}</strong><b>{formatMoney(proposal.amountCents ?? 0, invoices.find((invoice) => invoice.id === proposal.targetInvoiceId)?.currency ?? 'USD')}</b></div>
-                <p>{invoiceLabel(invoices, proposal.targetInvoiceId)} · {relevantPolicies.find((policy) => policy.id === proposal.matchedPolicyId)?.title ?? 'Policy review'}{proposal.approvalReason ? ` · ${proposal.approvalReason.replaceAll('_', ' ').toLowerCase()}` : ''}</p>
+                <p>{invoiceLabel(invoices, proposal.targetInvoiceId)} · {relevantPolicies.find((policy) => policy.id === proposal.matchedPolicyId)?.title ?? 'Policy review'}{proposal.approvalReason ? ` · ${approvalReasonText(proposal.approvalReason)}` : ''}</p>
                 {proposal.status === 'PROPOSED' && proposal.requiresHumanApproval && (
                   <div className="proposal-actions">
                     <label>Operator label<input value={operatorId} onChange={(event) => onOperatorChange(event.target.value)} placeholder="Your operator ID" /></label>
@@ -247,7 +253,6 @@ function TicketDetail({ context, operatorId, actionPending, onOperatorChange, on
                 {proposal.status === 'EXECUTED' && <span className="execution-note">Refund recorded{proposal.executedAt ? ` · ${relativeTime(proposal.executedAt)}` : ''}</span>}
               </article>
             ))}
-            {proposedTotal > 0 && <span className="proposal-total">Total across proposals {formatMoney(proposedTotal, 'USD')}</span>}
           </div>
         )}
         <p className="action-disclaimer">Updates the invoice record.</p>
@@ -339,8 +344,6 @@ export default function App() {
           <button className={`nav-link${filter === 'pending_approval' ? ' active' : ''}`} aria-pressed={filter === 'pending_approval'} type="button" onClick={() => setFilter(filter === 'pending_approval' ? 'all' : 'pending_approval')}><Icon name="clock" /><span>Approvals</span><span className="nav-count">{pendingCount}</span></button>
         </nav>
 
-        <div className="sidebar-footer">
-        </div>
       </aside>
 
       <main className="main-area">
