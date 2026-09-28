@@ -71,21 +71,9 @@ function initials(name: string): string {
     .join('');
 }
 
-function Metric({ label, value }: { label: string; value: number }) {
-  return (
-    <article className="metric-card">
-      <div className="metric-copy">
-        <p>{label}</p>
-        <strong>{value}</strong>
-      </div>
-    </article>
-  );
-}
-
 function TicketRow({ ticket, selected, onSelect }: { ticket: TicketSummary; selected: boolean; onSelect: () => void }) {
   return (
     <button className={`ticket-row${selected ? ' selected' : ''}`} aria-pressed={selected} onClick={onSelect} type="button">
-      <span className={`ticket-avatar ${ticket.customer.tier}`}>{initials(ticket.customer.name)}</span>
       <span className="ticket-copy">
         <span className="ticket-row-top">
           <strong>{ticket.subject}</strong>
@@ -320,8 +308,6 @@ export default function App() {
   }, [refreshSequence, selectedId]);
 
   const pendingCount = useMemo(() => tickets.filter((ticket) => ticket.status === 'pending_approval').length, [tickets]);
-  const openCount = useMemo(() => tickets.filter((ticket) => ticket.status === 'open').length, [tickets]);
-  const customerCount = useMemo(() => new Set(tickets.map((ticket) => ticket.customer.id)).size, [tickets]);
   const visibleTickets = useMemo(() => {
     const needle = search.trim().toLowerCase();
     return tickets.filter((ticket) => {
@@ -337,28 +323,19 @@ export default function App() {
         <div className="brand-lockup"><span className="brand-name">Support Desk</span></div>
 
         <nav className="side-nav" aria-label="Main navigation">
-          <button className={`nav-link${filter === 'all' ? ' active' : ''}`} aria-pressed={filter === 'all'} type="button" onClick={() => setFilter('all')}><Icon name="inbox" /><span>Case queue</span><span className="nav-count">{tickets.length}</span></button>
+          <button className={`nav-link${filter === 'all' ? ' active' : ''}`} aria-pressed={filter === 'all'} type="button" onClick={() => setFilter('all')}><Icon name="inbox" /><span>Inbox</span><span className="nav-count">{tickets.length}</span></button>
           <button className={`nav-link${filter === 'pending_approval' ? ' active' : ''}`} aria-pressed={filter === 'pending_approval'} type="button" onClick={() => setFilter(filter === 'pending_approval' ? 'all' : 'pending_approval')}><Icon name="clock" /><span>Approvals</span><span className="nav-count">{pendingCount}</span></button>
         </nav>
 
       </aside>
 
       <main className="main-area">
-        <header className="page-header">
-          <div><h1>Cases</h1></div>
-        </header>
+        <header className="page-header"><h1>Case queue</h1></header>
 
         {error && <div className="error-banner" role="alert">{error}<button type="button" onClick={() => setError('')}>Dismiss</button></div>}
 
-        <section className="metrics-grid" aria-label="Queue summary">
-          <Metric label="Open" value={openCount} />
-          <Metric label="Awaiting approval" value={pendingCount} />
-          <Metric label="Customers" value={customerCount} />
-        </section>
-
         <section className="workbench" aria-label="Support cases">
           <div className="queue-panel panel">
-            <div className="panel-heading queue-heading"><div><h2>Queue <span className="heading-count">{visibleTickets.length}</span></h2></div></div>
             <label className="search-box"><Icon name="search" /><input aria-label="Search cases and customers" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search cases" /></label>
             <div className="queue-tabs"><button className={filter === 'all' ? 'chosen' : ''} aria-pressed={filter === 'all'} onClick={() => setFilter('all')} type="button">All cases</button><button className={filter === 'pending_approval' ? 'chosen' : ''} aria-pressed={filter === 'pending_approval'} onClick={() => setFilter('pending_approval')} type="button">Awaiting approval</button></div>
             <div className="ticket-list" aria-live="polite">
