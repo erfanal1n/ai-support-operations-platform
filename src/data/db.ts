@@ -22,6 +22,7 @@ export class MemoryStore implements TicketTriageDataSource {
   >();
   public readonly auditLogs: AuditEntry[] = [];
   public readonly operatorSessions = new Map<string, OperatorSessionRecord>();
+  public readonly loginAttempts = new Map<string, { windowStartedAt: number; attempts: number }>();
 
   async getTicket(id: string): Promise<SupportTicket | null> {
     return this.tickets.get(id) ?? null;

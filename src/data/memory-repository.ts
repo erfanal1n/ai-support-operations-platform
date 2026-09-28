@@ -14,7 +14,7 @@ import type { PolicySearchHit } from '../support/policy-search.js';
 import type { CreateTicketInput, TicketContext, TicketListEntry } from '../support/tickets.js';
 import { createTicket, getTicketContext, listTickets } from '../support/tickets.js';
 import type { MemoryStore } from './db.js';
-import type { OperatorSessionRecord, SupportRepository } from './repository.js';
+import type { LoginAttemptResult, OperatorSessionRecord, SupportRepository } from './repository.js';
 import type { TicketStatus } from '../core/types.js';
 
 export class MemorySupportRepository implements SupportRepository {
@@ -42,6 +42,29 @@ export class MemorySupportRepository implements SupportRepository {
 
   async deleteOperatorSession(sessionHash: string): Promise<void> {
     this.store.operatorSessions.delete(sessionHash);
+  }
+
+  async consumeLoginAttempt(key: string, windowSeconds: number, maxAttempts: number): Promise<LoginAttemptResult> {
+    const now = Date.now();
+    for (const [id, current] of this.store.loginAttempts) {
+      if (current.windowStartedAt + windowSeconds * 1000 <= now) this.store.loginAttempts.delete(id);
+    }
+
+    const current = this.store.loginAttempts.get(key);
+    const windowStartedAt = current && current.windowStartedAt + windowSeconds * 1000 > now
+      ? current.windowStartedAt
+      : now;
+    const attempts = current && windowStartedAt === current.windowStartedAt ? current.attempts + 1 : 1;
+    this.store.loginAttempts.set(key, { windowStartedAt, attempts });
+
+    return {
+      allowed: attempts <= maxAttempts,
+      retryAfterSeconds: Math.max(1, Math.ceil((windowStartedAt + windowSeconds * 1000 - now) / 1000)),
+    };
+  }
+
+  async clearLoginAttempts(key: string): Promise<void> {
+    this.store.loginAttempts.delete(key);
   }
 
   async getTicket(id: string) {

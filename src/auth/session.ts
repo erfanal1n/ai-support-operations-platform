@@ -56,6 +56,10 @@ export function credentialFingerprint(token: string): string {
   return tokenDigest(token).toString('hex');
 }
 
+export function loginAttemptKey(ip: string, operatorId: string, secret: string): string {
+  return createHmac('sha256', secret).update(`${ip}\0${operatorId.toLowerCase()}`).digest('hex');
+}
+
 export function createSession(operator: OperatorCredential, secret: string, secure: boolean): IssuedSession {
   const sessionId = randomBytes(32).toString('base64url');
   const expiresAt = Date.now() + sessionLifetimeSeconds * 1000;

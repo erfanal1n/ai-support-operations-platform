@@ -31,12 +31,19 @@ export interface OperatorSessionRecord {
   expiresAt: string;
 }
 
+export interface LoginAttemptResult {
+  allowed: boolean;
+  retryAfterSeconds: number;
+}
+
 export interface SupportRepository extends TicketTriageDataSource {
   health(): Promise<void>;
   close(): Promise<void>;
   createOperatorSession(session: OperatorSessionRecord): Promise<void>;
   getOperatorSession(sessionHash: string): Promise<OperatorSessionRecord | null>;
   deleteOperatorSession(sessionHash: string): Promise<void>;
+  consumeLoginAttempt(key: string, windowSeconds: number, maxAttempts: number): Promise<LoginAttemptResult>;
+  clearLoginAttempts(key: string): Promise<void>;
   listTickets(status?: TicketStatus): Promise<TicketListEntry[]>;
   getTicketContext(ticketId: string, policyHits: PolicySearchHit[]): Promise<TicketContext>;
   createTicket(input: CreateTicketInput): Promise<SupportTicket>;

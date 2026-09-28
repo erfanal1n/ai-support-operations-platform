@@ -6,6 +6,7 @@ import {
   NotFoundError,
   ServiceUnavailableError,
   StateConflictError,
+  TooManyRequestsError,
   UnauthorizedError,
   ValidationError,
 } from './core/errors.js';
@@ -18,6 +19,7 @@ import {
   clearSessionCookie,
   createSession,
   credentialFingerprint,
+  loginAttemptKey,
   readSession,
 } from './auth/session.js';
 import { TicketTriageAgent } from './ai/ticket-triage.js';
@@ -54,6 +56,8 @@ const loginSchema = z.object({
   id: z.string().trim().min(1).max(120),
   token: z.string().min(1).max(512),
 }).strict();
+const loginWindowSeconds = 15 * 60;
+const maxLoginAttempts = 5;
 
 function requireAgent(request: FastifyRequest): void {
   if (env.AUTH_MODE === 'session' && !request.operator) throw new UnauthorizedError();
@@ -150,12 +154,20 @@ export function buildApp(
     const parsed = loginSchema.safeParse(request.body);
     if (!parsed.success) throw requestValidationError('Login request is invalid', parsed.error.issues);
 
+    const attemptKey = loginAttemptKey(request.ip, parsed.data.id, env.SESSION_SECRET ?? '');
+    const attempt = await repository.consumeLoginAttempt(attemptKey, loginWindowSeconds, maxLoginAttempts);
+    if (!attempt.allowed) {
+      reply.header('Retry-After', String(attempt.retryAfterSeconds));
+      throw new TooManyRequestsError();
+    }
+
     const operator = authenticateOperator(parsed.data.id, parsed.data.token, env.SUPPORT_OPERATOR_TOKENS);
     if (!operator) throw new UnauthorizedError('Operator ID or token is invalid');
     const credential = env.SUPPORT_OPERATOR_TOKENS.find(({ id }) => id === operator.id)!;
     const session = createSession(credential, env.SESSION_SECRET ?? '', env.NODE_ENV === 'production');
 
     await repository.createOperatorSession(session);
+    await repository.clearLoginAttempts(attemptKey);
     reply.header('Set-Cookie', session.cookie);
     return { operator };
   });

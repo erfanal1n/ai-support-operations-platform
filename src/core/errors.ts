@@ -59,6 +59,12 @@ export class UnauthorizedError extends AppError {
   }
 }
 
+export class TooManyRequestsError extends AppError {
+  constructor() {
+    super('Too many sign-in attempts. Try again later.', 'E_RATE_LIMITED', 429);
+  }
+}
+
 export class ForbiddenError extends AppError {
   constructor(message = 'This action requires supervisor access') {
     super(message, 'E_FORBIDDEN', 403);

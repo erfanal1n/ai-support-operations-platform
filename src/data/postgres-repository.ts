@@ -16,7 +16,7 @@ import type { DecideRefundProposalInput, RefundDecisionResult } from '../support
 import type { ExecuteRefundInput, ExecuteRefundResult } from '../support/refund-execution.js';
 import type { PolicySearchHit } from '../support/policy-search.js';
 import type { CreateTicketInput, TicketContext, TicketListEntry } from '../support/tickets.js';
-import type { OperatorSessionRecord, SupportRepository } from './repository.js';
+import type { LoginAttemptResult, OperatorSessionRecord, SupportRepository } from './repository.js';
 
 interface CustomerRow extends QueryResultRow {
   id: string;
@@ -183,15 +183,17 @@ export class PostgresSupportRepository implements SupportRepository {
       tickets: string | null;
       proposals: string | null;
       sessions: string | null;
+      loginAttempts: string | null;
       schema: string | null;
     }>(
       `SELECT to_regclass('public.tickets') AS tickets,
               to_regclass('public.action_proposals') AS proposals,
               to_regclass('public.operator_sessions') AS sessions,
+              to_regclass('public.auth_login_attempts') AS "loginAttempts",
               to_regclass('public.schema_migrations') AS schema`
     );
     const schema = result.rows[0];
-    if (!schema?.tickets || !schema.proposals || !schema.sessions || !schema.schema) {
+    if (!schema?.tickets || !schema.proposals || !schema.sessions || !schema.loginAttempts || !schema.schema) {
       throw new Error('Database schema is missing; run pnpm db:migrate');
     }
   }
@@ -231,6 +233,42 @@ export class PostgresSupportRepository implements SupportRepository {
 
   async deleteOperatorSession(sessionHash: string): Promise<void> {
     await this.pool.query('DELETE FROM operator_sessions WHERE session_hash = $1', [sessionHash]);
+  }
+
+  async consumeLoginAttempt(key: string, windowSeconds: number, maxAttempts: number): Promise<LoginAttemptResult> {
+    await this.pool.query(
+      `DELETE FROM auth_login_attempts
+       WHERE window_started_at <= NOW() - ($1::int * INTERVAL '1 second')`,
+      [windowSeconds]
+    );
+
+    const result = await this.pool.query<{
+      attempts: number;
+      retry_after_seconds: number;
+    }>(
+      `INSERT INTO auth_login_attempts(attempt_key, window_started_at, attempts)
+       VALUES ($1, NOW(), 1)
+       ON CONFLICT (attempt_key) DO UPDATE
+       SET window_started_at = CASE
+             WHEN auth_login_attempts.window_started_at + ($2::int * INTERVAL '1 second') <= NOW() THEN NOW()
+             ELSE auth_login_attempts.window_started_at
+           END,
+           attempts = CASE
+             WHEN auth_login_attempts.window_started_at + ($2::int * INTERVAL '1 second') <= NOW() THEN 1
+             ELSE auth_login_attempts.attempts + 1
+           END
+       RETURNING attempts,
+         GREATEST(1, CEIL(EXTRACT(EPOCH FROM (
+           window_started_at + ($2::int * INTERVAL '1 second') - NOW()
+         )))::int) AS retry_after_seconds`,
+      [key, windowSeconds]
+    );
+    const row = result.rows[0]!;
+    return { allowed: row.attempts <= maxAttempts, retryAfterSeconds: row.retry_after_seconds };
+  }
+
+  async clearLoginAttempts(key: string): Promise<void> {
+    await this.pool.query('DELETE FROM auth_login_attempts WHERE attempt_key = $1', [key]);
   }
 
   async getTicket(id: string): Promise<SupportTicket | null> {
