@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 const EnvSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3000),
-  HOST: z.string().default('0.0.0.0'),
+  HOST: z.string().default('127.0.0.1'),
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   APPROVAL_REFUND_THRESHOLD_CENTS: z.coerce.number().int().nonnegative().default(10000),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
