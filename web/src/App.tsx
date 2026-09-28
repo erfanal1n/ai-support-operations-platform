@@ -59,14 +59,12 @@ function initials(name: string): string {
     .join('');
 }
 
-function Metric({ label, value, detail, tone }: { label: string; value: number; detail: string; tone: string }) {
+function Metric({ label, value }: { label: string; value: number }) {
   return (
     <article className="metric-card">
-      <div className={`metric-mark ${tone}`}><span /></div>
       <div className="metric-copy">
         <p>{label}</p>
         <strong>{value}</strong>
-        <small>{detail}</small>
       </div>
     </article>
   );
@@ -144,7 +142,7 @@ function TicketDetail({ context, operatorId, actionPending, onOperatorChange, on
             <span className={`status-pill ${ticket.status}`}>{statusLabel(ticket.status)}</span>
           </div>
           <h2>{ticket.subject}</h2>
-          <p className="case-subtitle">Opened {relativeTime(ticket.createdAt)} · {caseType(ticket.subject)}</p>
+          <p className="case-subtitle">Received {relativeTime(ticket.createdAt)} · {caseType(ticket.subject)}</p>
         </div>
       </section>
 
@@ -161,8 +159,8 @@ function TicketDetail({ context, operatorId, actionPending, onOperatorChange, on
       <section className="message-card">
         <div className="section-heading">
           <div>
-            <span className="section-kicker">CUSTOMER MESSAGE</span>
-            <h3>What they need</h3>
+            <span className="section-kicker">MESSAGE</span>
+            <h3>Customer message</h3>
           </div>
           <span className="message-time"><Icon name="clock" /> {relativeTime(ticket.createdAt)}</span>
         </div>
@@ -189,7 +187,7 @@ function TicketDetail({ context, operatorId, actionPending, onOperatorChange, on
 
         <div className="evidence-card policy-card">
           <div className="section-heading compact">
-            <div className="heading-with-icon"><span className="icon-tile policy"><Icon name="shield" /></span><div><span className="section-kicker">MATCHED KNOWLEDGE</span><h3>Policy evidence</h3></div></div>
+            <div className="heading-with-icon"><span className="icon-tile policy"><Icon name="shield" /></span><div><span className="section-kicker">POLICY</span><h3>Matched evidence</h3></div></div>
             <span className="count-pill">{relevantPolicies.length}</span>
           </div>
           {relevantPolicies.length === 0 ? <p className="empty-note">No policy phrase matched. Review the request manually.</p> : (
@@ -208,7 +206,7 @@ function TicketDetail({ context, operatorId, actionPending, onOperatorChange, on
       </section>
 
       <section className="action-card">
-        <div className="section-heading compact"><div><span className="section-kicker">REFUND WORKFLOW</span><h3>Review and act</h3></div><span className="demo-label">Synthetic records</span></div>
+        <div className="section-heading compact"><div><span className="section-kicker">REFUND</span><h3>Proposal</h3></div><span className="demo-label">In-memory record</span></div>
         {canProposeRefund ? (
           <form className="proposal-form" onSubmit={submitProposal}>
             <label>Invoice<select value={invoiceId} onChange={(event) => setInvoiceId(event.target.value)}>{refundableInvoices.map((invoice) => <option key={invoice.id} value={invoice.id}>{invoice.id} · {formatMoney(invoice.amountCents - invoice.refundedAmountCents, invoice.currency)} remaining</option>)}</select></label>
@@ -229,7 +227,7 @@ function TicketDetail({ context, operatorId, actionPending, onOperatorChange, on
         {proposals.length > 0 && (
           <div className="proposal-history">
             <div className="section-heading compact"><div><span className="section-kicker">ACTION HISTORY</span><h3>Refund proposals</h3></div><span className="count-pill">{proposals.length}</span></div>
-            {proposals.map((proposal) => (
+              {proposals.map((proposal) => (
               <article className="proposal-item" key={proposal.id}>
                 <div className="proposal-row"><span>{proposal.id}</span><strong className={`proposal-status ${proposal.status.toLowerCase()}`}>{proposal.status.toLowerCase()}</strong><b>{formatMoney(proposal.amountCents ?? 0, 'USD')}</b></div>
                 <p>{proposal.targetInvoiceId} · {proposal.matchedPolicyId}{proposal.approvalReason ? ` · ${proposal.approvalReason}` : ''}</p>
@@ -246,10 +244,10 @@ function TicketDetail({ context, operatorId, actionPending, onOperatorChange, on
                 {proposal.status === 'EXECUTED' && <span className="execution-note">Invoice record updated{proposal.executedAt ? ` · ${relativeTime(proposal.executedAt)}` : ''}</span>}
               </article>
             ))}
-            {proposedTotal > 0 && <span className="proposal-total">Proposed total {formatMoney(proposedTotal, 'USD')}</span>}
+            {proposedTotal > 0 && <span className="proposal-total">Total across proposals {formatMoney(proposedTotal, 'USD')}</span>}
           </div>
         )}
-        <p className="action-disclaimer">Actions update the local demo store only. No payment is sent.</p>
+        <p className="action-disclaimer">Demo only. No payment provider is connected.</p>
       </section>
     </div>
   );
@@ -330,47 +328,43 @@ export default function App() {
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <div className="brand-lockup"><span className="brand-mark">N</span><span className="brand-name">northstar<small>SUPPORT OPS</small></span></div>
-        <div className="workspace-select"><span className="workspace-avatar">W</span><span><strong>Workspace</strong><small>Demo environment</small></span><span className="workspace-caret">⌄</span></div>
+        <div className="brand-lockup"><span className="brand-mark">SD</span><span className="brand-name">Support desk<small>LOCAL DEMO</small></span></div>
+        <div className="workspace-select"><span className="workspace-avatar">L</span><span><strong>Local workspace</strong><small>Seed data</small></span></div>
 
         <nav className="side-nav" aria-label="Main navigation">
-          <span className="nav-label">WORKSPACE</span>
-          <button className="nav-link active" type="button"><Icon name="inbox" /><span>Case queue</span><span className="nav-count">{tickets.length}</span></button>
-          <button className="nav-link" type="button" onClick={() => setFilter(filter === 'pending_approval' ? 'all' : 'pending_approval')}><Icon name="clock" /><span>Needs approval</span><span className="nav-count">{pendingCount}</span></button>
-          <span className="nav-label tools-label">TOOLS</span>
-          <div className="nav-link muted"><Icon name="shield" /><span>Policy library</span><span className="soon-label">SOON</span></div>
+          <span className="nav-label">QUEUE</span>
+          <button className="nav-link active" type="button" onClick={() => setFilter('all')}><Icon name="inbox" /><span>All cases</span><span className="nav-count">{tickets.length}</span></button>
+          <button className="nav-link" type="button" onClick={() => setFilter(filter === 'pending_approval' ? 'all' : 'pending_approval')}><Icon name="clock" /><span>Awaiting approval</span><span className="nav-count">{pendingCount}</span></button>
         </nav>
 
         <div className="sidebar-footer">
-          <div className="local-indicator"><span /> Local demo · data resets on restart</div>
-          <div className="operator-card"><span className="operator-avatar">D</span><span><strong>Demo operator</strong><small>Local audit label</small></span></div>
+          <div className="local-indicator"><span /> In-memory data · resets on restart</div>
         </div>
       </aside>
 
       <main className="main-area">
         <header className="page-header">
-          <div><p className="breadcrumb">Workspace <span>/</span> Cases</p><h1>Case queue</h1><p className="page-subtitle">Review the facts, match policy, and decide what happens next.</p></div>
-          <div className="header-right"><span className="environment-badge"><span /> Local environment</span></div>
+          <div><p className="breadcrumb">Support desk <span>/</span> Queue</p><h1>Cases</h1><p className="page-subtitle">Requests and the invoice and policy records attached to them.</p></div>
+          <div className="header-right"><span className="environment-badge">LOCAL</span></div>
         </header>
 
         {error && <div className="error-banner" role="alert">{error}<button type="button" onClick={() => setError('')}>Dismiss</button></div>}
 
         <section className="metrics-grid" aria-label="Queue summary">
-          <Metric label="Open cases" value={openCount} detail="Ready for review" tone="mint" />
-          <Metric label="Needs approval" value={pendingCount} detail="Waiting on an operator" tone="amber" />
-          <Metric label="Customer accounts" value={customerCount} detail="Represented in this queue" tone="blue" />
-          <Metric label="Policy matches" value={context?.relevantPolicies.length ?? 0} detail="For selected case" tone="violet" />
+          <Metric label="Open" value={openCount} />
+          <Metric label="Awaiting approval" value={pendingCount} />
+          <Metric label="Customers" value={customerCount} />
         </section>
 
         <section className="workbench" aria-label="Support cases">
           <div className="queue-panel panel">
-            <div className="panel-heading queue-heading"><div><span className="section-kicker">INBOX</span><h2>Cases <span className="heading-count">{visibleTickets.length}</span></h2></div></div>
+            <div className="panel-heading queue-heading"><div><span className="section-kicker">REQUESTS</span><h2>All cases <span className="heading-count">{visibleTickets.length}</span></h2></div></div>
             <label className="search-box"><Icon name="search" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search cases" /></label>
-            <div className="queue-tabs"><button className={filter === 'all' ? 'chosen' : ''} onClick={() => setFilter('all')} type="button">All cases</button><button className={filter === 'pending_approval' ? 'chosen' : ''} onClick={() => setFilter('pending_approval')} type="button">Needs approval</button></div>
+            <div className="queue-tabs"><button className={filter === 'all' ? 'chosen' : ''} onClick={() => setFilter('all')} type="button">All</button><button className={filter === 'pending_approval' ? 'chosen' : ''} onClick={() => setFilter('pending_approval')} type="button">Awaiting approval</button></div>
             <div className="ticket-list" aria-live="polite">
               {queueLoading ? <div className="queue-state">Loading cases…</div> : visibleTickets.length === 0 ? <div className="queue-state">No cases match this view.</div> : visibleTickets.map((ticket) => <TicketRow key={ticket.id} ticket={ticket} selected={selectedId === ticket.id} onSelect={() => setSelectedId(ticket.id)} />)}
             </div>
-            <div className="queue-footnote"><span className="live-dot" /> Connected to local API <button type="button" aria-label="Refresh queue" onClick={() => setRefreshSequence((value) => value + 1)}>↻</button></div>
+            <div className="queue-footnote">In-memory demo data <button type="button" aria-label="Refresh queue" onClick={() => setRefreshSequence((value) => value + 1)}>↻</button></div>
           </div>
 
           <div className="detail-panel panel">
@@ -385,7 +379,6 @@ export default function App() {
             /> : <div className="detail-loading">Choose a case to review.</div>}
           </div>
         </section>
-        <footer className="page-footer"><span>Northstar Support Ops</span><span>Evidence first. Actions with a paper trail.</span></footer>
       </main>
     </div>
   );
