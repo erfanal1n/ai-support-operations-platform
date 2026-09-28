@@ -87,4 +87,44 @@ describe('health endpoint', () => {
     expect(store.tickets.size).toBe(3);
     expect(store.auditLogs).toHaveLength(0);
   });
+
+  it('lists tickets and filters by status', async () => {
+    const app = buildApp(new MemoryStore());
+    apps.push(app);
+
+    const allTickets = await app.inject({ method: 'GET', url: '/api/tickets' });
+    const pendingTickets = await app.inject({ method: 'GET', url: '/api/tickets?status=pending_approval' });
+
+    expect(allTickets.statusCode).toBe(200);
+    expect(allTickets.json().tickets).toHaveLength(3);
+    expect(pendingTickets.statusCode).toBe(200);
+    expect(pendingTickets.json().tickets).toEqual([]);
+  });
+
+  it('returns ticket detail with invoice and policy evidence', async () => {
+    const app = buildApp(new MemoryStore());
+    apps.push(app);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/tickets/ticket_solo_duplicate_charge',
+    });
+    const ticketContext = response.json();
+
+    expect(response.statusCode).toBe(200);
+    expect(ticketContext.ticket.id).toBe('ticket_solo_duplicate_charge');
+    expect(ticketContext.invoices).toHaveLength(2);
+    expect(ticketContext.relevantPolicies[0].id).toBe('POL-REFUND-STANDARD');
+  });
+
+  it('rejects invalid queue filters and missing tickets', async () => {
+    const app = buildApp(new MemoryStore());
+    apps.push(app);
+
+    const invalidFilter = await app.inject({ method: 'GET', url: '/api/tickets?status=waiting' });
+    const missingTicket = await app.inject({ method: 'GET', url: '/api/tickets/ticket_missing' });
+
+    expect(invalidFilter.statusCode).toBe(422);
+    expect(missingTicket.statusCode).toBe(404);
+  });
 });

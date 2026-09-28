@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { NotFoundError } from '../core/errors.js';
 import { MemoryStore } from '../data/db.js';
-import { createTicket } from './tickets.js';
+import { createTicket, getTicketContext, listTickets } from './tickets.js';
 
 describe('createTicket', () => {
   it('creates an open ticket and records the creation', () => {
@@ -47,5 +47,34 @@ describe('createTicket', () => {
     ).toThrow(NotFoundError);
     expect([...store.tickets.values()]).toEqual(startingTickets);
     expect(store.auditLogs).toHaveLength(0);
+  });
+
+  it('lists newest tickets with a small customer summary', () => {
+    const store = new MemoryStore();
+    const tickets = listTickets(store);
+
+    expect(tickets).toHaveLength(3);
+    expect(tickets[0]).toMatchObject({
+      id: 'ticket_solo_duplicate_charge',
+      customer: { id: 'cust_solo_dev', name: 'Alex Rivera', tier: 'starter' },
+    });
+    expect(tickets[0]).not.toHaveProperty('rawMessage');
+    expect(listTickets(store, 'pending_approval')).toEqual([]);
+  });
+
+  it('returns the ticket, customer, matching invoices, and policy evidence', () => {
+    const store = new MemoryStore();
+    const context = getTicketContext(store, 'ticket_solo_duplicate_charge');
+
+    expect(context.customer).toMatchObject({ id: 'cust_solo_dev', tenureDays: 12 });
+    expect(context.invoices.map((invoice) => invoice.id)).toEqual(['inv_solo_001', 'inv_solo_002']);
+    expect(context.relevantPolicies[0]).toMatchObject({
+      id: 'POL-REFUND-STANDARD',
+      matchedKeywords: ['charged twice'],
+    });
+  });
+
+  it('returns not found for an unknown ticket', () => {
+    expect(() => getTicketContext(new MemoryStore(), 'ticket_missing')).toThrow(NotFoundError);
   });
 });

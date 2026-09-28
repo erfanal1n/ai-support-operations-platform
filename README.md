@@ -8,9 +8,10 @@ Refund assessment is read-only. It never issues a refund or changes an invoice.
 
 - `GET /health` reports whether the API is running.
 - `POST /api/tickets` validates a request, creates an open ticket for a seeded customer, and writes an audit entry.
+- `GET /api/tickets` lists the queue; ticket detail includes the customer's invoices and matched policy phrases.
 - Refund assessment checks invoice ownership and state, remaining balance, policy window, amount limit, and customer tenure.
 - Policy keyword search returns the matched phrases alongside each policy.
-- The in-memory store starts with synthetic customers, invoices, and policies.
+- The in-memory store starts with synthetic tickets, customers, invoices, and policies.
 
 ```mermaid
 flowchart LR

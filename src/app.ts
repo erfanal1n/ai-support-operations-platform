@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { AppError, ValidationError } from './core/errors.js';
 import { env } from './config/env.js';
 import { db, MemoryStore } from './data/db.js';
-import { createTicket } from './support/tickets.js';
+import { createTicket, getTicketContext, listTickets } from './support/tickets.js';
 
 const createTicketSchema = z
   .object({
@@ -12,6 +12,10 @@ const createTicketSchema = z
     rawMessage: z.string().trim().min(1).max(5000),
   })
   .strict();
+const ticketListQuerySchema = z
+  .object({ status: z.enum(['open', 'pending_approval', 'resolved', 'rejected']).optional() })
+  .strict();
+const ticketParamsSchema = z.object({ ticketId: z.string().trim().min(1).max(120) }).strict();
 
 export function buildApp(store: MemoryStore = db) {
   const app = Fastify({ logger: { level: env.LOG_LEVEL } });
@@ -40,6 +44,32 @@ export function buildApp(store: MemoryStore = db) {
   });
 
   app.get('/health', async () => ({ status: 'ok' }));
+
+  app.get('/api/tickets', async (request) => {
+    const parsed = ticketListQuerySchema.safeParse(request.query);
+    if (!parsed.success) {
+      const details = parsed.error.issues.map((issue) => ({
+        path: issue.path.join('.'),
+        message: issue.message,
+      }));
+      throw new ValidationError('Ticket query is invalid', details);
+    }
+
+    return { tickets: listTickets(store, parsed.data.status) };
+  });
+
+  app.get('/api/tickets/:ticketId', async (request) => {
+    const parsed = ticketParamsSchema.safeParse(request.params);
+    if (!parsed.success) {
+      const details = parsed.error.issues.map((issue) => ({
+        path: issue.path.join('.'),
+        message: issue.message,
+      }));
+      throw new ValidationError('Ticket ID is invalid', details);
+    }
+
+    return getTicketContext(store, parsed.data.ticketId);
+  });
 
   app.post('/api/tickets', async (request, reply) => {
     const parsed = createTicketSchema.safeParse(request.body);
