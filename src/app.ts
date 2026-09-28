@@ -1,8 +1,9 @@
 import Fastify from 'fastify';
 import { z, type ZodIssue } from 'zod';
-import { AppError, ServiceUnavailableError, ValidationError } from './core/errors.js';
+import { AppError, NotFoundError, ServiceUnavailableError, ValidationError } from './core/errors.js';
 import { env } from './config/env.js';
 import { db, MemoryStore } from './data/db.js';
+import { TicketTriageAgent } from './ai/ticket-triage.js';
 import { decideRefundProposal } from './support/refund-decisions.js';
 import { executeRefundProposal } from './support/refund-execution.js';
 import { createRefundProposal } from './support/refund-proposals.js';
@@ -46,6 +47,9 @@ function requestValidationError(message: string, issues: ZodIssue[]): Validation
 
 export function buildApp(store: MemoryStore = db, policySearch: PolicySearchEngine = createPolicySearch(env)) {
   const app = Fastify({ logger: { level: env.LOG_LEVEL } });
+  const triageAgent = env.AI_TRIAGE_MODE === 'openai' && env.OPENAI_API_KEY
+    ? new TicketTriageAgent(env.OPENAI_API_KEY, env.OPENAI_TRIAGE_MODEL, store, policySearch)
+    : undefined;
 
   app.setErrorHandler((err, request, reply) => {
     if (err instanceof AppError) {
@@ -96,6 +100,23 @@ export function buildApp(store: MemoryStore = db, policySearch: PolicySearchEngi
     } catch {
       request.log.error('Policy retrieval failed');
       throw new ServiceUnavailableError('Policy retrieval is temporarily unavailable');
+    }
+  });
+
+  app.post('/api/tickets/:ticketId/triage', async (request) => {
+    const parsed = ticketParamsSchema.safeParse(request.params);
+    if (!parsed.success) {
+      throw requestValidationError('Ticket ID is invalid', parsed.error.issues);
+    }
+
+    if (!store.tickets.has(parsed.data.ticketId)) throw new NotFoundError('Ticket', parsed.data.ticketId);
+    if (!triageAgent) throw new ServiceUnavailableError('AI ticket triage is not enabled');
+
+    try {
+      return { triage: await triageAgent.triage(parsed.data.ticketId) };
+    } catch (err) {
+      request.log.error({ err }, 'Ticket triage failed');
+      throw new ServiceUnavailableError('Ticket triage is temporarily unavailable');
     }
   });
 

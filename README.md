@@ -14,6 +14,7 @@ Assessment decides eligibility. A separate execution step updates the synthetic 
 - `POST /api/refund-proposals/:proposalId/execute` re-checks policy and updates the invoice record once.
 - Refund assessment checks invoice ownership and state, remaining balance, policy window, amount limit, and customer tenure.
 - Policy search returns the matched policy and any exact phrases found in the request.
+- Optional AI triage uses retrieved policy and invoice evidence to draft a response for operator review.
 - The in-memory store starts with synthetic tickets, customers, invoices, and policies.
 
 ```mermaid
@@ -52,6 +53,12 @@ The console can search and filter the queue, inspect invoice and policy evidence
 Keyword search is the default and works without an API key. To use semantic search, copy `.env.example` to `.env`, set `POLICY_RETRIEVAL_MODE=semantic`, and provide an OpenAI API key. The selected embedding model can be changed with `OPENAI_EMBEDDING_MODEL`.
 
 Semantic mode embeds policy text once per server process and each ticket message when its details are requested. It combines cosine similarity with a small exact-keyword boost. Embeddings live in memory and are rebuilt after restart. Ticket messages and policy text are sent to OpenAI only in semantic mode; keep synthetic data in this prototype.
+
+## Ticket triage
+
+Triage is disabled by default. To enable it, set `AI_TRIAGE_MODE=openai` and provide `OPENAI_API_KEY`; `OPENAI_TRIAGE_MODEL` selects the model. `POST /api/tickets/:ticketId/triage` returns a short case summary, a reply draft, a suggested next step, and the evidence IDs used.
+
+The agent has two read-only tools scoped to the selected ticket: policy search and that customer's invoices. Its output is schema-validated, evidence IDs are checked against tool results, and every response requires operator review. It cannot approve or execute refunds. When enabled, ticket text and the retrieved policy and invoice evidence are sent to OpenAI; use synthetic data here.
 
 ## Create a ticket
 
@@ -96,4 +103,4 @@ pnpm eval:retrieval
 
 This is still a local prototype. Tickets, proposals, invoices, and audit entries disappear when the process stops. The API has no authentication; `operatorId` is only a caller-supplied label. There is no payment provider integration. Do not use real customer data or expose this server to the internet.
 
-The console runs through Vite and is not served by the Fastify production server. There is no generated support response, tool-calling agent, durable vector store, or authentication. The phrase-search baseline is intentionally simple; the missed scenario is kept in the evaluation set so later retrieval changes can be compared against it.
+The console runs through Vite and is not served by the Fastify production server. The AI triage endpoint is optional and disabled by default. There is no durable database or vector store, streaming response, or authentication. The phrase-search baseline is intentionally simple; the missed scenario is kept in the evaluation set so later retrieval changes can be compared against it.
