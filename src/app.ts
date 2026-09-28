@@ -3,6 +3,7 @@ import { z, type ZodIssue } from 'zod';
 import { AppError, ValidationError } from './core/errors.js';
 import { env } from './config/env.js';
 import { db, MemoryStore } from './data/db.js';
+import { decideRefundProposal } from './support/refund-decisions.js';
 import { createRefundProposal } from './support/refund-proposals.js';
 import { createTicket, getTicketContext, listTickets } from './support/tickets.js';
 
@@ -25,6 +26,13 @@ const refundProposalSchema = z
   })
   .strict();
 const idempotencyKeySchema = z.string().trim().min(16).max(200);
+const refundProposalParamsSchema = z.object({ proposalId: z.string().trim().min(1).max(120) }).strict();
+const refundDecisionSchema = z
+  .object({
+    decision: z.enum(['APPROVE', 'REJECT']),
+    operatorId: z.string().trim().min(1).max(120),
+  })
+  .strict();
 
 function requestValidationError(message: string, issues: ZodIssue[]): ValidationError {
   return new ValidationError(
@@ -108,6 +116,30 @@ export function buildApp(store: MemoryStore = db) {
     const result = createRefundProposal(store, {
       ...body.data,
       ticketId: params.data.ticketId,
+      idempotencyKey: key.data,
+    });
+    return reply.code(result.replayed ? 200 : 201).send(result);
+  });
+
+  app.post('/api/refund-proposals/:proposalId/decision', async (request, reply) => {
+    const params = refundProposalParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      throw requestValidationError('Refund proposal ID is invalid', params.error.issues);
+    }
+
+    const body = refundDecisionSchema.safeParse(request.body);
+    if (!body.success) {
+      throw requestValidationError('Refund decision is invalid', body.error.issues);
+    }
+
+    const key = idempotencyKeySchema.safeParse(request.headers['idempotency-key']);
+    if (!key.success) {
+      throw requestValidationError('Idempotency-Key header is required', key.error.issues);
+    }
+
+    const result = decideRefundProposal(store, {
+      ...body.data,
+      proposalId: params.data.proposalId,
       idempotencyKey: key.data,
     });
     return reply.code(result.replayed ? 200 : 201).send(result);

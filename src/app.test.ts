@@ -178,4 +178,39 @@ describe('health endpoint', () => {
     expect(response.statusCode).toBe(422);
     expect(store.proposals.size).toBe(0);
   });
+
+  it('records an idempotent operator decision without executing the refund', async () => {
+    const store = new MemoryStore();
+    const app = buildApp(store);
+    apps.push(app);
+    const proposalResponse = await app.inject({
+      method: 'POST',
+      url: '/api/tickets/ticket_solo_duplicate_charge/refund-proposals',
+      headers: { 'idempotency-key': 'refund-proposal-solo-001' },
+      payload: {
+        invoiceId: 'inv_solo_001',
+        policyId: 'POL-REFUND-STANDARD',
+        amountCents: 2900,
+      },
+    });
+    const proposalId = proposalResponse.json().proposal.id as string;
+    const decisionRequest = {
+      method: 'POST' as const,
+      url: `/api/refund-proposals/${proposalId}/decision`,
+      headers: { 'idempotency-key': 'refund-approval-solo-001' },
+      payload: { decision: 'APPROVE', operatorId: 'operator-17' },
+    };
+
+    const decision = await app.inject(decisionRequest);
+    const replay = await app.inject(decisionRequest);
+
+    expect(proposalResponse.statusCode).toBe(201);
+    expect(decision.statusCode).toBe(201);
+    expect(decision.json().proposal.status).toBe('APPROVED');
+    expect(replay.statusCode).toBe(200);
+    expect(replay.json().replayed).toBe(true);
+    expect(store.invoices.get('inv_solo_001')?.refundedAmountCents).toBe(0);
+    expect(store.tickets.get('ticket_solo_duplicate_charge')?.status).toBe('open');
+    expect(store.auditLogs.filter(({ actionType }) => actionType === 'REFUND_APPROVE')).toHaveLength(1);
+  });
 });

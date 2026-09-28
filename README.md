@@ -10,6 +10,7 @@ Refund assessment is read-only. It never issues a refund or changes an invoice.
 - `POST /api/tickets` validates a request, creates an open ticket for a seeded customer, and writes an audit entry.
 - `GET /api/tickets` lists the queue; ticket detail includes the customer's invoices and matched policy phrases.
 - `POST /api/tickets/:ticketId/refund-proposals` records a policy-checked proposal and requires an idempotency key.
+- `POST /api/refund-proposals/:proposalId/decision` records an operator approval or rejection.
 - Refund assessment checks invoice ownership and state, remaining balance, policy window, amount limit, and customer tenure.
 - Policy keyword search returns the matched phrases alongside each policy.
 - The in-memory store starts with synthetic tickets, customers, invoices, and policies.
@@ -58,6 +59,8 @@ curl -X POST http://127.0.0.1:3000/api/tickets/ticket_solo_duplicate_charge/refu
 
 This case requires operator approval because the customer account is under 30 days old. Repeating the request with the same key returns the same proposal; using that key with different input returns `409`.
 
+The decision endpoint takes `{"decision":"APPROVE","operatorId":"operator-17"}` (or `REJECT`) and its own idempotency key. It changes proposal and ticket state, but does not issue a refund.
+
 ## Checks
 
 ```sh
@@ -71,6 +74,6 @@ The current phrase-search baseline finds the expected policy in 5 of 6 synthetic
 
 ## Current limits
 
-This is still a local prototype. Tickets, proposals, and audit entries disappear when the process stops. The API has no authentication, and proposals cannot be approved or executed yet. Do not use real customer data or expose this server to the internet.
+This is still a local prototype. Tickets, proposals, and audit entries disappear when the process stops. The API has no authentication; `operatorId` is only a caller-supplied label. Refunds cannot be executed yet. Do not use real customer data or expose this server to the internet.
 
 There is no model provider, vector retrieval, approval screen, or frontend yet. The phrase-search baseline is intentionally simple; the missed scenario is kept in the evaluation set so later retrieval changes can be compared against it.
