@@ -13,7 +13,8 @@ export class MemoryStore {
   public readonly invoices: Map<string, InvoiceRecord> = new Map();
   public readonly tickets: Map<string, SupportTicket> = new Map();
   public readonly proposals: Map<string, ActionProposal> = new Map();
-  public readonly refundProposalKeys = new Map<string, { fingerprint: string; proposalId: string }>();
+  public readonly refundProposalKeys = new Map<string, { fingerprint: string; proposal: ActionProposal }>();
+  public readonly refundDecisionKeys = new Map<string, { fingerprint: string; proposal: ActionProposal }>();
   public readonly auditLogs: AuditEntry[] = [];
 
   constructor() {

@@ -40,9 +40,7 @@ export function createRefundProposal(
       throw new IdempotencyConflictError();
     }
 
-    const proposal = store.proposals.get(previousRequest.proposalId);
-    if (!proposal) throw new Error('Refund proposal idempotency record is invalid');
-    return { proposal, replayed: true };
+    return { proposal: { ...previousRequest.proposal }, replayed: true };
   }
 
   const ticket = store.tickets.get(input.ticketId);
@@ -104,7 +102,7 @@ export function createRefundProposal(
   }
   store.refundProposalKeys.set(input.idempotencyKey, {
     fingerprint: requestFingerprint,
-    proposalId: proposal.id,
+    proposal: { ...proposal },
   });
   store.appendAudit('SYSTEM', 'REFUND_PROPOSED', proposal.id, {
     ticketId: ticket.id,
@@ -114,5 +112,5 @@ export function createRefundProposal(
     requiresHumanApproval,
   });
 
-  return { proposal, replayed: false };
+  return { proposal: { ...proposal }, replayed: false };
 }

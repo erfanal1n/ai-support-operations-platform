@@ -39,9 +39,11 @@ describe('createRefundProposal', () => {
   it('replays the same proposal for a repeated idempotency key', () => {
     const store = new MemoryStore();
     const first = createRefundProposal(store, proposalInput, now);
+    store.proposals.set(first.proposal.id, { ...first.proposal, status: 'APPROVED' });
     const second = createRefundProposal(store, proposalInput, now);
 
     expect(second).toEqual({ proposal: first.proposal, replayed: true });
+    expect(second.proposal.status).toBe('PROPOSED');
     expect(store.proposals.size).toBe(1);
     expect(store.auditLogs.filter(({ actionType }) => actionType === 'REFUND_PROPOSED')).toHaveLength(1);
   });
