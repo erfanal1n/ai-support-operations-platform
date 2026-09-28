@@ -25,6 +25,11 @@ function formatMoney(amountCents: number, currency: string): string {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(amountCents / 100);
 }
 
+function invoiceLabel(invoices: TicketContext['invoices'], invoiceId?: string): string {
+  const index = invoices.findIndex((invoice) => invoice.id === invoiceId);
+  return index < 0 ? 'Account invoice' : `Invoice ${index + 1}`;
+}
+
 function relativeTime(timestamp: string): string {
   const elapsed = Date.now() - Date.parse(timestamp);
   if (!Number.isFinite(elapsed) || elapsed < 0) return 'just now';
@@ -72,7 +77,7 @@ function Metric({ label, value }: { label: string; value: number }) {
 
 function TicketRow({ ticket, selected, onSelect }: { ticket: TicketSummary; selected: boolean; onSelect: () => void }) {
   return (
-    <button className={`ticket-row${selected ? ' selected' : ''}`} onClick={onSelect} type="button">
+    <button className={`ticket-row${selected ? ' selected' : ''}`} aria-pressed={selected} onClick={onSelect} type="button">
       <span className={`ticket-avatar ${ticket.customer.tier}`}>{initials(ticket.customer.name)}</span>
       <span className="ticket-copy">
         <span className="ticket-row-top">
@@ -86,7 +91,7 @@ function TicketRow({ ticket, selected, onSelect }: { ticket: TicketSummary; sele
           </span>
         </span>
       </span>
-      <span className={`status-dot ${ticket.status}`} aria-label={statusLabel(ticket.status)} />
+      <span className={`ticket-status ${ticket.status}`}>{statusLabel(ticket.status)}</span>
     </button>
   );
 }
@@ -138,7 +143,6 @@ function TicketDetail({ context, operatorId, actionPending, onOperatorChange, on
       <section className="case-heading">
         <div className="case-title-block">
           <div className="case-overline">
-            <span className="case-id">{ticket.id}</span>
             <span className={`status-pill ${ticket.status}`}>{statusLabel(ticket.status)}</span>
           </div>
           <h2>{ticket.subject}</h2>
@@ -150,7 +154,6 @@ function TicketDetail({ context, operatorId, actionPending, onOperatorChange, on
         <div className={`customer-avatar ${customer.tier}`}>{initials(customer.name)}</div>
         <div className="customer-identity">
           <strong>{customer.name}</strong>
-          <span>{customer.id}</span>
         </div>
         <span className={`tier-pill ${customer.tier}`}>{customer.tier}</span>
         <span className="customer-tenure"><b>{customer.tenureDays}d</b> tenure</span>
@@ -177,7 +180,7 @@ function TicketDetail({ context, operatorId, actionPending, onOperatorChange, on
             <div className="invoice-list">
               {invoices.map((invoice) => (
                 <div className="invoice-row" key={invoice.id}>
-                  <div className="invoice-id"><strong>{invoice.id}</strong><span>{new Date(invoice.issuedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span></div>
+                  <div className="invoice-id"><strong>{invoiceLabel(invoices, invoice.id)}</strong><span>{new Date(invoice.issuedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span></div>
                   <div className="invoice-amount"><strong>{formatMoney(invoice.amountCents, invoice.currency)}</strong><span>{invoice.refundedAmountCents > 0 ? `${formatMoney(invoice.refundedAmountCents, invoice.currency)} refunded` : invoice.status.replace('_', ' ')}</span></div>
                 </div>
               ))}
@@ -194,7 +197,7 @@ function TicketDetail({ context, operatorId, actionPending, onOperatorChange, on
             <div className="policy-list">
               {relevantPolicies.map((policy) => (
                 <article className="policy-evidence" key={policy.id}>
-                  <div className="policy-title-row"><strong>{policy.title}</strong><span>{policy.id}</span></div>
+                  <div className="policy-title-row"><strong>{policy.title}</strong></div>
                   <p>{policy.summary}</p>
                   <div className="match-phrases">{policy.matchedKeywords.map((keyword) => <span key={keyword}>{keyword}</span>)}</div>
                   <details><summary>Read policy text</summary><p>{policy.fullText}</p></details>
@@ -206,13 +209,13 @@ function TicketDetail({ context, operatorId, actionPending, onOperatorChange, on
       </section>
 
       <section className="action-card">
-        <div className="section-heading compact"><div><span className="section-kicker">REFUND</span><h3>Proposal</h3></div><span className="demo-label">In-memory record</span></div>
+        <div className="section-heading compact"><div><span className="section-kicker">REFUND</span><h3>Refund proposal</h3></div></div>
         {canProposeRefund ? (
           <form className="proposal-form" onSubmit={submitProposal}>
-            <label>Invoice<select value={invoiceId} onChange={(event) => setInvoiceId(event.target.value)}>{refundableInvoices.map((invoice) => <option key={invoice.id} value={invoice.id}>{invoice.id} · {formatMoney(invoice.amountCents - invoice.refundedAmountCents, invoice.currency)} remaining</option>)}</select></label>
-            <label>Matched policy<select value={policyId} onChange={(event) => setPolicyId(event.target.value)}>{refundPolicies.map((policy) => <option key={policy.id} value={policy.id}>{policy.id} · {policy.title}</option>)}</select></label>
+            <label>Invoice<select value={invoiceId} onChange={(event) => setInvoiceId(event.target.value)}>{refundableInvoices.map((invoice) => <option key={invoice.id} value={invoice.id}>{invoiceLabel(invoices, invoice.id)} · {formatMoney(invoice.amountCents - invoice.refundedAmountCents, invoice.currency)} remaining</option>)}</select></label>
+            <label>Matched policy<select value={policyId} onChange={(event) => setPolicyId(event.target.value)}>{refundPolicies.map((policy) => <option key={policy.id} value={policy.id}>{policy.title}</option>)}</select></label>
             <label>Refund amount<input type="number" min="0.01" max={(remainingCents / 100).toFixed(2)} step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} /></label>
-            <button className="primary-action" type="submit" disabled={actionPending || !amount || Number(amount) <= 0 || Number(amount) * 100 > remainingCents}>Create proposal</button>
+            <button className="primary-action" type="submit" disabled={actionPending || !amount || Number(amount) <= 0 || Number(amount) * 100 > remainingCents}>Submit proposal</button>
           </form>
         ) : (
           <p className="empty-note">{refundPolicies.length === 0
@@ -229,8 +232,8 @@ function TicketDetail({ context, operatorId, actionPending, onOperatorChange, on
             <div className="section-heading compact"><div><span className="section-kicker">ACTION HISTORY</span><h3>Refund proposals</h3></div><span className="count-pill">{proposals.length}</span></div>
               {proposals.map((proposal) => (
               <article className="proposal-item" key={proposal.id}>
-                <div className="proposal-row"><span>{proposal.id}</span><strong className={`proposal-status ${proposal.status.toLowerCase()}`}>{proposal.status.toLowerCase()}</strong><b>{formatMoney(proposal.amountCents ?? 0, 'USD')}</b></div>
-                <p>{proposal.targetInvoiceId} · {proposal.matchedPolicyId}{proposal.approvalReason ? ` · ${proposal.approvalReason}` : ''}</p>
+                <div className="proposal-row"><span>Refund request · {relativeTime(proposal.createdAt)}</span><strong className={`proposal-status ${proposal.status.toLowerCase()}`}>{proposal.status.toLowerCase()}</strong><b>{formatMoney(proposal.amountCents ?? 0, invoices.find((invoice) => invoice.id === proposal.targetInvoiceId)?.currency ?? 'USD')}</b></div>
+                <p>{invoiceLabel(invoices, proposal.targetInvoiceId)} · {relevantPolicies.find((policy) => policy.id === proposal.matchedPolicyId)?.title ?? 'Policy review'}{proposal.approvalReason ? ` · ${proposal.approvalReason.replaceAll('_', ' ').toLowerCase()}` : ''}</p>
                 {proposal.status === 'PROPOSED' && proposal.requiresHumanApproval && (
                   <div className="proposal-actions">
                     <label>Operator label<input value={operatorId} onChange={(event) => onOperatorChange(event.target.value)} placeholder="Your operator ID" /></label>
@@ -239,15 +242,15 @@ function TicketDetail({ context, operatorId, actionPending, onOperatorChange, on
                   </div>
                 )}
                 {(proposal.status === 'APPROVED' || (proposal.status === 'PROPOSED' && !proposal.requiresHumanApproval)) && (
-                  <div className="proposal-actions"><button className="primary-action" type="button" disabled={actionPending} onClick={() => onExecute(proposal.id)}>Execute on synthetic invoice</button></div>
+                  <div className="proposal-actions"><button className="primary-action" type="button" disabled={actionPending} onClick={() => onExecute(proposal.id)}>Mark invoice refunded</button></div>
                 )}
-                {proposal.status === 'EXECUTED' && <span className="execution-note">Invoice record updated{proposal.executedAt ? ` · ${relativeTime(proposal.executedAt)}` : ''}</span>}
+                {proposal.status === 'EXECUTED' && <span className="execution-note">Refund recorded{proposal.executedAt ? ` · ${relativeTime(proposal.executedAt)}` : ''}</span>}
               </article>
             ))}
             {proposedTotal > 0 && <span className="proposal-total">Total across proposals {formatMoney(proposedTotal, 'USD')}</span>}
           </div>
         )}
-        <p className="action-disclaimer">Demo only. No payment provider is connected.</p>
+        <p className="action-disclaimer">Updates the invoice record.</p>
       </section>
     </div>
   );
@@ -321,31 +324,28 @@ export default function App() {
     return tickets.filter((ticket) => {
       if (filter === 'pending_approval' && ticket.status !== 'pending_approval') return false;
       if (!needle) return true;
-      return `${ticket.subject} ${ticket.customer.name} ${ticket.id}`.toLowerCase().includes(needle);
+      return `${ticket.subject} ${ticket.customer.name}`.toLowerCase().includes(needle);
     });
   }, [filter, search, tickets]);
 
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <div className="brand-lockup"><span className="brand-mark">SD</span><span className="brand-name">Support desk<small>LOCAL DEMO</small></span></div>
-        <div className="workspace-select"><span className="workspace-avatar">L</span><span><strong>Local workspace</strong><small>Seed data</small></span></div>
+        <div className="brand-lockup"><span className="brand-mark" aria-hidden="true">SD</span><span className="brand-name">Support desk<small>OPERATIONS</small></span></div>
 
         <nav className="side-nav" aria-label="Main navigation">
-          <span className="nav-label">QUEUE</span>
-          <button className="nav-link active" type="button" onClick={() => setFilter('all')}><Icon name="inbox" /><span>All cases</span><span className="nav-count">{tickets.length}</span></button>
-          <button className="nav-link" type="button" onClick={() => setFilter(filter === 'pending_approval' ? 'all' : 'pending_approval')}><Icon name="clock" /><span>Awaiting approval</span><span className="nav-count">{pendingCount}</span></button>
+          <span className="nav-label">WORK</span>
+          <button className={`nav-link${filter === 'all' ? ' active' : ''}`} aria-pressed={filter === 'all'} type="button" onClick={() => setFilter('all')}><Icon name="inbox" /><span>Case queue</span><span className="nav-count">{tickets.length}</span></button>
+          <button className={`nav-link${filter === 'pending_approval' ? ' active' : ''}`} aria-pressed={filter === 'pending_approval'} type="button" onClick={() => setFilter(filter === 'pending_approval' ? 'all' : 'pending_approval')}><Icon name="clock" /><span>Approvals</span><span className="nav-count">{pendingCount}</span></button>
         </nav>
 
         <div className="sidebar-footer">
-          <div className="local-indicator"><span /> In-memory data · resets on restart</div>
         </div>
       </aside>
 
       <main className="main-area">
         <header className="page-header">
-          <div><p className="breadcrumb">Support desk <span>/</span> Queue</p><h1>Cases</h1><p className="page-subtitle">Requests and the invoice and policy records attached to them.</p></div>
-          <div className="header-right"><span className="environment-badge">LOCAL</span></div>
+          <div><p className="breadcrumb">Support desk <span>/</span> Cases</p><h1>Case queue</h1><p className="page-subtitle">Review billing requests with their account and policy records.</p></div>
         </header>
 
         {error && <div className="error-banner" role="alert">{error}<button type="button" onClick={() => setError('')}>Dismiss</button></div>}
@@ -358,13 +358,13 @@ export default function App() {
 
         <section className="workbench" aria-label="Support cases">
           <div className="queue-panel panel">
-            <div className="panel-heading queue-heading"><div><span className="section-kicker">REQUESTS</span><h2>All cases <span className="heading-count">{visibleTickets.length}</span></h2></div></div>
-            <label className="search-box"><Icon name="search" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search cases" /></label>
-            <div className="queue-tabs"><button className={filter === 'all' ? 'chosen' : ''} onClick={() => setFilter('all')} type="button">All</button><button className={filter === 'pending_approval' ? 'chosen' : ''} onClick={() => setFilter('pending_approval')} type="button">Awaiting approval</button></div>
+            <div className="panel-heading queue-heading"><div><span className="section-kicker">INBOX</span><h2>Cases <span className="heading-count">{visibleTickets.length}</span></h2></div></div>
+            <label className="search-box"><Icon name="search" /><input aria-label="Search cases and customers" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search cases" /></label>
+            <div className="queue-tabs"><button className={filter === 'all' ? 'chosen' : ''} aria-pressed={filter === 'all'} onClick={() => setFilter('all')} type="button">All cases</button><button className={filter === 'pending_approval' ? 'chosen' : ''} aria-pressed={filter === 'pending_approval'} onClick={() => setFilter('pending_approval')} type="button">Awaiting approval</button></div>
             <div className="ticket-list" aria-live="polite">
               {queueLoading ? <div className="queue-state">Loading cases…</div> : visibleTickets.length === 0 ? <div className="queue-state">No cases match this view.</div> : visibleTickets.map((ticket) => <TicketRow key={ticket.id} ticket={ticket} selected={selectedId === ticket.id} onSelect={() => setSelectedId(ticket.id)} />)}
             </div>
-            <div className="queue-footnote">In-memory demo data <button type="button" aria-label="Refresh queue" onClick={() => setRefreshSequence((value) => value + 1)}>↻</button></div>
+            <div className="queue-footnote"><button type="button" aria-label="Refresh cases" onClick={() => setRefreshSequence((value) => value + 1)}>Refresh cases <span aria-hidden="true">↻</span></button></div>
           </div>
 
           <div className="detail-panel panel">
