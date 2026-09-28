@@ -30,7 +30,16 @@ export class MemoryStore {
         maxAutoApprovedCents: 5000,
         minTenureDays: 30,
         refundWindowDays: 14,
-        keywords: ['refund', 'double charge', 'charged twice', 'billing mistake', 'money back'],
+        keywords: [
+          'refund',
+          'double charge',
+          'charged twice',
+          'two charges',
+          'duplicate charge',
+          'billed twice',
+          'billing mistake',
+          'money back',
+        ],
       },
       {
         id: 'POL-REFUND-OUTAGE',

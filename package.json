@@ -9,6 +9,7 @@
     "start": "node dist/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
+    "eval:retrieval": "tsx src/evals/run-policy-search.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
