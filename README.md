@@ -60,6 +60,8 @@ Triage is disabled by default. To enable it, set `AI_TRIAGE_MODE=openai` and pro
 
 The agent has two read-only tools scoped to the selected ticket: policy search and that customer's invoices. Its output is schema-validated, evidence IDs are checked against tool results, and every response requires operator review. It cannot approve or execute refunds. When enabled, ticket text and the retrieved policy and invoice evidence are sent to OpenAI; use synthetic data here.
 
+Run `pnpm eval:triage` with triage enabled to score five synthetic cases for action accuracy, evidence citations, prompt-injection handling, and unchanged case state. The eval makes live model calls and exits with a non-zero status if any case fails.
+
 ## Create a ticket
 
 The demo store accepts these customer IDs: `cust_acme_corp`, `cust_solo_dev`, and `cust_suspicious_user`.
