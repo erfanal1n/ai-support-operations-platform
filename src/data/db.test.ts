@@ -6,7 +6,8 @@ describe('MemoryStore Fixtures & Audit Trailing', () => {
     const store = new MemoryStore();
     expect(store.policies.size).toBeGreaterThanOrEqual(4);
     expect(store.customers.size).toBe(3);
-    expect(store.invoices.size).toBe(3);
+    expect(store.invoices.size).toBe(4);
+    expect(store.tickets.size).toBe(3);
   });
 
   it('records tamper-evident append-only audit entries', () => {

@@ -41,7 +41,7 @@ describe('health endpoint', () => {
       subject: 'Duplicate charge',
       status: 'open',
     });
-    expect(store.tickets.size).toBe(1);
+    expect(store.tickets.size).toBe(4);
     expect(store.auditLogs).toHaveLength(1);
   });
 
@@ -63,7 +63,7 @@ describe('health endpoint', () => {
 
     expect(response.statusCode).toBe(422);
     expect(response.json().error.code).toBe('E_VALIDATION_FAILED');
-    expect(store.tickets.size).toBe(0);
+    expect(store.tickets.size).toBe(3);
     expect(store.auditLogs).toHaveLength(0);
   });
 
@@ -84,7 +84,7 @@ describe('health endpoint', () => {
 
     expect(response.statusCode).toBe(404);
     expect(response.json().error.code).toBe('E_NOT_FOUND');
-    expect(store.tickets.size).toBe(0);
+    expect(store.tickets.size).toBe(3);
     expect(store.auditLogs).toHaveLength(0);
   });
 });

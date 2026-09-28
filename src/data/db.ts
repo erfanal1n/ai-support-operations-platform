@@ -108,6 +108,7 @@ export class MemoryStore {
       this.customers.set(cust.id, cust);
     }
 
+    const soloInvoiceIssuedAt = new Date(Date.now() - 6 * 86400000).toISOString();
     const defaultInvoices: InvoiceRecord[] = [
       {
         id: 'inv_acme_001',
@@ -134,12 +135,52 @@ export class MemoryStore {
         refundedAmountCents: 0,
         currency: 'USD',
         status: 'paid',
-        issuedAt: new Date(Date.now() - 6 * 86400000).toISOString(),
+        issuedAt: soloInvoiceIssuedAt,
+      },
+      {
+        id: 'inv_solo_002',
+        customerId: 'cust_solo_dev',
+        amountCents: 2900,
+        refundedAmountCents: 0,
+        currency: 'USD',
+        status: 'paid',
+        issuedAt: soloInvoiceIssuedAt,
       },
     ];
 
     for (const inv of defaultInvoices) {
       this.invoices.set(inv.id, inv);
+    }
+
+    const demoTickets: SupportTicket[] = [
+      {
+        id: 'ticket_solo_duplicate_charge',
+        customerId: 'cust_solo_dev',
+        subject: 'Possible duplicate $29 charge',
+        rawMessage: 'I was billed $29 twice for the same plan today. Invoice references: inv_solo_001 and inv_solo_002.',
+        status: 'open',
+        createdAt: new Date(Date.now() - 20 * 60000).toISOString(),
+      },
+      {
+        id: 'ticket_acme_refund_review',
+        customerId: 'cust_acme_corp',
+        subject: 'Refund request for the $180 plan',
+        rawMessage: 'Please refund invoice inv_acme_002 for $180.00. I no longer need the upgraded plan.',
+        status: 'open',
+        createdAt: new Date(Date.now() - 50 * 60000).toISOString(),
+      },
+      {
+        id: 'ticket_card_dispute',
+        customerId: 'cust_suspicious_user',
+        subject: 'I may dispute this card charge',
+        rawMessage: 'I do not recognize this charge and may ask my bank to file a dispute.',
+        status: 'open',
+        createdAt: new Date(Date.now() - 2 * 3600000).toISOString(),
+      },
+    ];
+
+    for (const ticket of demoTickets) {
+      this.tickets.set(ticket.id, ticket);
     }
   }
 
