@@ -16,7 +16,9 @@
   },
   "dependencies": {
     "@fastify/cors": "^9.0.1",
+    "dotenv": "^18.0.4",
     "fastify": "^4.26.2",
+    "openai": "^7.23.0",
     "zod": "^3.22.4"
   },
   "devDependencies": {

@@ -192,7 +192,7 @@ function TicketDetail({ context, operatorId, actionPending, onOperatorChange, on
                 <article className="policy-evidence" key={policy.id}>
                   <div className="policy-title-row"><strong>{policy.title}</strong></div>
                   <p>{policy.summary}</p>
-                  <p className="match-phrases">Matched terms: {policy.matchedKeywords.join(', ')}</p>
+                  {policy.matchedKeywords.length > 0 && <p className="match-phrases">Matched terms: {policy.matchedKeywords.join(', ')}</p>}
                   <details><summary>Read policy text</summary><p>{policy.fullText}</p></details>
                 </article>
               ))}

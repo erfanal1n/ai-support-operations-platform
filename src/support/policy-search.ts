@@ -6,6 +6,10 @@ export interface PolicySearchHit {
   score: number;
 }
 
+export interface PolicySearchEngine {
+  search(policies: Iterable<PolicyRule>, query: string, limit?: number): Promise<PolicySearchHit[]>;
+}
+
 function normalizeText(value: string): string {
   return value.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 }

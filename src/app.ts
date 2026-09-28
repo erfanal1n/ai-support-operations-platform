@@ -1,11 +1,13 @@
 import Fastify from 'fastify';
 import { z, type ZodIssue } from 'zod';
-import { AppError, ValidationError } from './core/errors.js';
+import { AppError, ServiceUnavailableError, ValidationError } from './core/errors.js';
 import { env } from './config/env.js';
 import { db, MemoryStore } from './data/db.js';
 import { decideRefundProposal } from './support/refund-decisions.js';
 import { executeRefundProposal } from './support/refund-execution.js';
 import { createRefundProposal } from './support/refund-proposals.js';
+import { createPolicySearch } from './support/policy-retrieval.js';
+import type { PolicySearchEngine } from './support/policy-search.js';
 import { createTicket, getTicketContext, listTickets } from './support/tickets.js';
 
 const createTicketSchema = z
@@ -42,7 +44,7 @@ function requestValidationError(message: string, issues: ZodIssue[]): Validation
   );
 }
 
-export function buildApp(store: MemoryStore = db) {
+export function buildApp(store: MemoryStore = db, policySearch: PolicySearchEngine = createPolicySearch(env)) {
   const app = Fastify({ logger: { level: env.LOG_LEVEL } });
 
   app.setErrorHandler((err, request, reply) => {
@@ -85,7 +87,16 @@ export function buildApp(store: MemoryStore = db) {
       throw requestValidationError('Ticket ID is invalid', parsed.error.issues);
     }
 
-    return getTicketContext(store, parsed.data.ticketId);
+    const ticket = store.tickets.get(parsed.data.ticketId);
+    if (!ticket) return getTicketContext(store, parsed.data.ticketId);
+
+    try {
+      const hits = await policySearch.search(store.policies.values(), ticket.rawMessage);
+      return getTicketContext(store, parsed.data.ticketId, hits);
+    } catch {
+      request.log.error('Policy retrieval failed');
+      throw new ServiceUnavailableError('Policy retrieval is temporarily unavailable');
+    }
   });
 
   app.post('/api/tickets', async (request, reply) => {

@@ -13,7 +13,7 @@ Assessment decides eligibility. A separate execution step updates the synthetic 
 - `POST /api/refund-proposals/:proposalId/decision` records an operator approval or rejection.
 - `POST /api/refund-proposals/:proposalId/execute` re-checks policy and updates the invoice record once.
 - Refund assessment checks invoice ownership and state, remaining balance, policy window, amount limit, and customer tenure.
-- Policy keyword search returns the matched phrases alongside each policy.
+- Policy search returns the matched policy and any exact phrases found in the request.
 - The in-memory store starts with synthetic tickets, customers, invoices, and policies.
 
 ```mermaid
@@ -46,6 +46,12 @@ pnpm dev:web
 Open `http://127.0.0.1:5173`. The API listens on `127.0.0.1:3000`; Vite proxies the console's API requests to it.
 
 The console can search and filter the queue, inspect invoice and policy evidence, create refund proposals, record an operator decision, and execute approved or auto-eligible proposals. Execution only changes the synthetic in-memory invoice fixture. The operator ID entered for an approval is an audit label, not authentication.
+
+## Policy retrieval
+
+Keyword search is the default and works without an API key. To use semantic search, copy `.env.example` to `.env`, set `POLICY_RETRIEVAL_MODE=semantic`, and provide an OpenAI API key. The selected embedding model can be changed with `OPENAI_EMBEDDING_MODEL`.
+
+Semantic mode embeds policy text once per server process and each ticket message when its details are requested. It combines cosine similarity with a small exact-keyword boost. Embeddings live in memory and are rebuilt after restart. Ticket messages and policy text are sent to OpenAI only in semantic mode; keep synthetic data in this prototype.
 
 ## Create a ticket
 
@@ -84,10 +90,10 @@ pnpm build:web
 pnpm eval:retrieval
 ```
 
-The current phrase-search baseline finds the expected policy in 5 of 6 synthetic scenarios at `k=3` (recall@3: 83.3%). The missed case is an invoice increase described without any configured keyword. This small fixture set is a baseline, not a production quality claim.
+`pnpm eval:retrieval` runs the six synthetic scenarios using the configured retrieval mode. The phrase-search baseline finds the expected policy in 5 of 6 scenarios at `k=3` (recall@3: 83.3%). This small fixture set is a baseline, not a production quality claim.
 
 ## Current limits
 
 This is still a local prototype. Tickets, proposals, invoices, and audit entries disappear when the process stops. The API has no authentication; `operatorId` is only a caller-supplied label. There is no payment provider integration. Do not use real customer data or expose this server to the internet.
 
-The console runs through Vite and is not served by the Fastify production server. There is no model provider, vector retrieval, durable storage, or authentication. The phrase-search baseline is intentionally simple; the missed scenario is kept in the evaluation set so later retrieval changes can be compared against it.
+The console runs through Vite and is not served by the Fastify production server. There is no generated support response, tool-calling agent, durable vector store, or authentication. The phrase-search baseline is intentionally simple; the missed scenario is kept in the evaluation set so later retrieval changes can be compared against it.

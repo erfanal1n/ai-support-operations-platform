@@ -9,7 +9,7 @@ import type {
   TicketStatus,
 } from '../core/types.js';
 import type { MemoryStore } from '../data/db.js';
-import { searchPolicies } from './policy-search.js';
+import { searchPolicies, type PolicySearchHit } from './policy-search.js';
 
 export interface TicketListEntry {
   id: string;
@@ -100,14 +100,18 @@ export function listTickets(store: MemoryStore, status?: TicketStatus): TicketLi
     });
 }
 
-export function getTicketContext(store: MemoryStore, ticketId: string): TicketContext {
+export function getTicketContext(
+  store: MemoryStore,
+  ticketId: string,
+  policyHits?: PolicySearchHit[]
+): TicketContext {
   const ticket = store.tickets.get(ticketId);
   if (!ticket) throw new NotFoundError('Ticket', ticketId);
 
   const customer = store.customers.get(ticket.customerId);
   if (!customer) throw new NotFoundError('Customer', ticket.customerId);
 
-  const relevantPolicies = searchPolicies(store.policies.values(), ticket.rawMessage).map(
+  const relevantPolicies = (policyHits ?? searchPolicies(store.policies.values(), ticket.rawMessage)).map(
     ({ policy, matchedKeywords }) => ({
       id: policy.id,
       category: policy.category,

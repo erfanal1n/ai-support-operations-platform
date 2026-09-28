@@ -46,3 +46,9 @@ export class StateConflictError extends AppError {
     super(message, 'E_STATE_CONFLICT', 409);
   }
 }
+
+export class ServiceUnavailableError extends AppError {
+  constructor(message: string) {
+    super(message, 'E_SERVICE_UNAVAILABLE', 503);
+  }
+}
