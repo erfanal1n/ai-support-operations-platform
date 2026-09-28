@@ -18,7 +18,7 @@ Assessment decides eligibility. A separate execution step updates the synthetic 
 
 ```mermaid
 flowchart LR
-  Client --> API[Fastify API]
+  Console[React support console] -->|HTTP| API[Fastify API]
   API -->|Zod validation| TicketService[Ticket service]
   TicketService --> Store[(In-memory store)]
   TicketService --> Audit[Audit log]
@@ -28,14 +28,24 @@ flowchart LR
 
 ## Run locally
 
-Requirements: Node.js 20 or newer and pnpm.
+Requirements: Node.js 20.19 or newer and pnpm.
+
+Start the API in one terminal:
 
 ```sh
 pnpm install
 pnpm dev
 ```
 
-The API listens on `127.0.0.1:3000` by default.
+Start the console in another terminal:
+
+```sh
+pnpm dev:web
+```
+
+Open `http://127.0.0.1:5173`. The API listens on `127.0.0.1:3000`; Vite proxies the console's API requests to it.
+
+The console can search and filter the queue, inspect invoice and policy evidence, create refund proposals, record an operator decision, and execute approved or auto-eligible proposals. Execution only changes the synthetic in-memory invoice fixture. The operator ID entered for an approval is an audit label, not authentication.
 
 ## Create a ticket
 
@@ -70,6 +80,7 @@ Execution uses another idempotency key. It only runs for auto-eligible proposals
 pnpm test
 pnpm typecheck
 pnpm build
+pnpm build:web
 pnpm eval:retrieval
 ```
 
@@ -79,4 +90,4 @@ The current phrase-search baseline finds the expected policy in 5 of 6 synthetic
 
 This is still a local prototype. Tickets, proposals, invoices, and audit entries disappear when the process stops. The API has no authentication; `operatorId` is only a caller-supplied label. There is no payment provider integration. Do not use real customer data or expose this server to the internet.
 
-There is no model provider, vector retrieval, approval screen, or frontend yet. The phrase-search baseline is intentionally simple; the missed scenario is kept in the evaluation set so later retrieval changes can be compared against it.
+The console runs through Vite and is not served by the Fastify production server. There is no model provider, vector retrieval, durable storage, or authentication. The phrase-search baseline is intentionally simple; the missed scenario is kept in the evaluation set so later retrieval changes can be compared against it.

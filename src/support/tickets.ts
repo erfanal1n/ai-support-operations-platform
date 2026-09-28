@@ -32,12 +32,24 @@ export interface TicketContext {
   }>;
   relevantPolicies: Array<{
     id: string;
+    category: string;
     title: string;
     summary: string;
     fullText: string;
     matchedKeywords: string[];
   }>;
-  proposals: Array<{ id: string; actionType: ActionType; status: ProposalStatus; amountCents?: number }>;
+  proposals: Array<{
+    id: string;
+    actionType: ActionType;
+    status: ProposalStatus;
+    amountCents?: number;
+    targetInvoiceId?: string;
+    matchedPolicyId: string;
+    requiresHumanApproval: boolean;
+    approvalReason?: string;
+    createdAt: string;
+    executedAt?: string;
+  }>;
 }
 
 export interface CreateTicketInput {
@@ -98,6 +110,7 @@ export function getTicketContext(store: MemoryStore, ticketId: string): TicketCo
   const relevantPolicies = searchPolicies(store.policies.values(), ticket.rawMessage).map(
     ({ policy, matchedKeywords }) => ({
       id: policy.id,
+      category: policy.category,
       title: policy.title,
       summary: policy.summary,
       fullText: policy.fullText,
@@ -126,6 +139,17 @@ export function getTicketContext(store: MemoryStore, ticketId: string): TicketCo
     relevantPolicies,
     proposals: [...store.proposals.values()]
       .filter((proposal) => proposal.ticketId === ticket.id)
-      .map(({ id, actionType, status, amountCents }) => ({ id, actionType, status, amountCents })),
+      .map(({ id, actionType, status, amountCents, targetInvoiceId, matchedPolicyId, requiresHumanApproval, approvalReason, createdAt, executedAt }) => ({
+        id,
+        actionType,
+        status,
+        amountCents,
+        targetInvoiceId,
+        matchedPolicyId,
+        requiresHumanApproval,
+        approvalReason,
+        createdAt,
+        executedAt,
+      })),
   };
 }
