@@ -1,5 +1,15 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import { createRefundProposal, decideRefundProposal, executeRefundProposal, fetchTicket, fetchTickets } from './api';
+import {
+  createRefundProposal,
+  decideRefundProposal,
+  executeRefundProposal,
+  fetchSession,
+  fetchTicket,
+  fetchTickets,
+  loginOperator,
+  logoutOperator,
+  type SessionStatus,
+} from './api';
 import type { TicketContext, TicketStatus, TicketSummary } from './types';
 
 type QueueFilter = 'all' | 'pending_approval';
@@ -94,6 +104,8 @@ function TicketRow({ ticket, selected, onSelect }: { ticket: TicketSummary; sele
 interface TicketDetailProps {
   context: TicketContext;
   operatorId: string;
+  canReview: boolean;
+  authenticated: boolean;
   actionPending: boolean;
   onOperatorChange: (value: string) => void;
   onPropose: (input: { invoiceId: string; policyId: string; amountCents: number }) => void;
@@ -101,7 +113,7 @@ interface TicketDetailProps {
   onExecute: (proposalId: string) => void;
 }
 
-function TicketDetail({ context, operatorId, actionPending, onOperatorChange, onPropose, onDecision, onExecute }: TicketDetailProps) {
+function TicketDetail({ context, operatorId, canReview, authenticated, actionPending, onOperatorChange, onPropose, onDecision, onExecute }: TicketDetailProps) {
   const { ticket, customer, invoices, relevantPolicies, proposals } = context;
   const refundableInvoices = invoices.filter((invoice) => invoice.status !== 'disputed' && invoice.amountCents > invoice.refundedAmountCents);
   const refundPolicies = relevantPolicies.filter((policy) => policy.category === 'refund');
@@ -229,13 +241,18 @@ function TicketDetail({ context, operatorId, actionPending, onOperatorChange, on
                 <p>{invoiceLabel(invoices, proposal.targetInvoiceId)} · {relevantPolicies.find((policy) => policy.id === proposal.matchedPolicyId)?.title ?? 'Policy review'}{proposal.approvalReason ? ` · ${approvalReasonText(proposal.approvalReason)}` : ''}</p>
                 {proposal.status === 'PROPOSED' && proposal.requiresHumanApproval && (
                   <div className="proposal-actions">
-                    <label>Operator label<input value={operatorId} onChange={(event) => onOperatorChange(event.target.value)} placeholder="Your operator ID" /></label>
-                    <button type="button" disabled={actionPending || !operatorId.trim()} onClick={() => onDecision(proposal.id, 'APPROVE')}>Approve</button>
-                    <button className="quiet-action" type="button" disabled={actionPending || !operatorId.trim()} onClick={() => onDecision(proposal.id, 'REJECT')}>Reject</button>
+                    {!canReview ? <p className="empty-note">A supervisor must review this proposal.</p> : <>
+                      {!authenticated && <label>Operator label<input value={operatorId} onChange={(event) => onOperatorChange(event.target.value)} placeholder="Your operator ID" /></label>}
+                      <button type="button" disabled={actionPending || (!authenticated && !operatorId.trim())} onClick={() => onDecision(proposal.id, 'APPROVE')}>Approve</button>
+                      <button className="quiet-action" type="button" disabled={actionPending || (!authenticated && !operatorId.trim())} onClick={() => onDecision(proposal.id, 'REJECT')}>Reject</button>
+                    </>}
                   </div>
                 )}
-                {(proposal.status === 'APPROVED' || (proposal.status === 'PROPOSED' && !proposal.requiresHumanApproval)) && (
+                {(proposal.status === 'APPROVED' || (proposal.status === 'PROPOSED' && !proposal.requiresHumanApproval)) && canReview && (
                   <div className="proposal-actions"><button className="primary-action" type="button" disabled={actionPending} onClick={() => onExecute(proposal.id)}>Record refund</button></div>
+                )}
+                {(proposal.status === 'APPROVED' || (proposal.status === 'PROPOSED' && !proposal.requiresHumanApproval)) && !canReview && (
+                  <p className="empty-note">A supervisor must record the refund.</p>
                 )}
                 {proposal.status === 'EXECUTED' && <span className="execution-note">Refund recorded{proposal.executedAt ? ` · ${relativeTime(proposal.executedAt)}` : ''}</span>}
               </article>
@@ -259,6 +276,30 @@ export default function App() {
   const [refreshSequence, setRefreshSequence] = useState(0);
   const [actionPending, setActionPending] = useState(false);
   const [operatorId, setOperatorId] = useState('');
+  const [session, setSession] = useState<SessionStatus | null>(null);
+  const [sessionReady, setSessionReady] = useState(false);
+  const [sessionError, setSessionError] = useState('');
+  const [loginId, setLoginId] = useState('');
+  const [loginToken, setLoginToken] = useState('');
+  const [loginPending, setLoginPending] = useState(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchSession(controller.signal)
+      .then((status) => {
+        setSession(status);
+        setSessionError('');
+      })
+      .catch((reason: unknown) => {
+        if (!controller.signal.aborted) {
+          setSessionError(reason instanceof Error ? reason.message : 'Could not check your session.');
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setSessionReady(true);
+      });
+    return () => controller.abort();
+  }, []);
 
   async function runAction(action: () => Promise<unknown>) {
     setActionPending(true);
@@ -273,7 +314,41 @@ export default function App() {
     }
   }
 
+  async function signIn(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setLoginPending(true);
+    setError('');
+    try {
+      const result = await loginOperator(loginId.trim(), loginToken);
+      setSession({ authRequired: true, operator: result.operator });
+      setLoginToken('');
+    } catch (reason: unknown) {
+      setError(reason instanceof Error ? reason.message : 'Sign-in failed.');
+    } finally {
+      setLoginPending(false);
+    }
+  }
+
+  async function signOut() {
+    try {
+      await logoutOperator();
+      setSession({ authRequired: true, operator: null });
+      setTickets([]);
+      setSelectedId(null);
+      setContext(null);
+      setError('');
+    } catch (reason: unknown) {
+      setError(reason instanceof Error ? reason.message : 'Sign-out failed.');
+    }
+  }
+
   useEffect(() => {
+    if (!sessionReady || sessionError || (session?.authRequired && !session.operator)) {
+      setQueueLoading(false);
+      return;
+    }
+
+    setQueueLoading(true);
     const controller = new AbortController();
     fetchTickets(controller.signal)
       .then((records) => {
@@ -287,9 +362,10 @@ export default function App() {
         if (!controller.signal.aborted) setQueueLoading(false);
       });
     return () => controller.abort();
-  }, [refreshSequence]);
+  }, [refreshSequence, sessionReady, sessionError, session?.authRequired, session?.operator?.id]);
 
   useEffect(() => {
+    if (!sessionReady || sessionError || (session?.authRequired && !session.operator)) return;
     if (!selectedId) {
       setContext(null);
       return;
@@ -305,7 +381,7 @@ export default function App() {
         if (!controller.signal.aborted) setDetailLoading(false);
       });
     return () => controller.abort();
-  }, [refreshSequence, selectedId]);
+  }, [refreshSequence, selectedId, sessionReady, sessionError, session?.authRequired, session?.operator?.id]);
 
   const pendingCount = useMemo(() => tickets.filter((ticket) => ticket.status === 'pending_approval').length, [tickets]);
   const visibleTickets = useMemo(() => {
@@ -316,6 +392,35 @@ export default function App() {
       return `${ticket.subject} ${ticket.customer.name}`.toLowerCase().includes(needle);
     });
   }, [filter, search, tickets]);
+
+  if (!sessionReady) {
+    return <main className="login-page"><p role="status">Checking session…</p></main>;
+  }
+
+  if (sessionError) {
+    return <main className="login-page"><section className="login-card"><h1>Support Desk</h1><p role="alert">{sessionError}</p><button type="button" onClick={() => window.location.reload()}>Try again</button></section></main>;
+  }
+
+  if (session?.authRequired && !session.operator) {
+    return (
+      <main className="login-page">
+        <section className="login-card">
+          <p className="login-brand">Support Desk</p>
+          <h1>Sign in</h1>
+          <form className="login-form" onSubmit={signIn}>
+            <label>Operator ID<input autoComplete="username" value={loginId} onChange={(event) => setLoginId(event.target.value)} required /></label>
+            <label>Access token<input type="password" autoComplete="current-password" value={loginToken} onChange={(event) => setLoginToken(event.target.value)} required /></label>
+            <button type="submit" disabled={loginPending || !loginId.trim() || !loginToken}>{loginPending ? 'Signing in…' : 'Sign in'}</button>
+          </form>
+          {error && <p className="login-error" role="alert">{error}</p>}
+        </section>
+      </main>
+    );
+  }
+
+  const authenticated = session?.authRequired === true && session.operator !== null;
+  const canReview = !session?.authRequired || session.operator?.role === 'supervisor';
+  const currentOperatorId = session?.authRequired ? session.operator?.id ?? '' : operatorId;
 
   return (
     <div className="app-shell">
@@ -330,7 +435,7 @@ export default function App() {
       </aside>
 
       <main className="main-area">
-        <header className="page-header"><h1>Case queue</h1></header>
+        <header className="page-header"><h1>Case queue</h1>{session?.authRequired && session.operator && <div className="session-bar"><span>{session.operator.id} · {session.operator.role}</span><button type="button" onClick={signOut}>Sign out</button></div>}</header>
 
         {error && <div className="error-banner" role="alert">{error}<button type="button" onClick={() => setError('')}>Dismiss</button></div>}
 
@@ -347,11 +452,13 @@ export default function App() {
           <div className="detail-panel panel">
             {detailLoading ? <div className="detail-loading">Loading case details…</div> : context ? <TicketDetail
               context={context}
-              operatorId={operatorId}
+              operatorId={currentOperatorId}
+              canReview={canReview}
+              authenticated={authenticated}
               actionPending={actionPending}
               onOperatorChange={setOperatorId}
               onPropose={(input) => runAction(() => createRefundProposal(context.ticket.id, input, `proposal-${crypto.randomUUID()}`))}
-              onDecision={(proposalId, decision) => runAction(() => decideRefundProposal(proposalId, decision, operatorId.trim(), `decision-${crypto.randomUUID()}`))}
+              onDecision={(proposalId, decision) => runAction(() => decideRefundProposal(proposalId, decision, currentOperatorId.trim(), `decision-${crypto.randomUUID()}`))}
               onExecute={(proposalId) => runAction(() => executeRefundProposal(proposalId, `execute-${crypto.randomUUID()}`))}
             /> : <div className="detail-loading">Choose a case to review.</div>}
           </div>

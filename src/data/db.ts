@@ -6,7 +6,7 @@ import type {
   PolicyRule,
   SupportTicket,
 } from '../core/types.js';
-import type { TicketTriageDataSource } from './repository.js';
+import type { OperatorSessionRecord, TicketTriageDataSource } from './repository.js';
 
 export class MemoryStore implements TicketTriageDataSource {
   public readonly policies: Map<string, PolicyRule> = new Map();
@@ -21,6 +21,7 @@ export class MemoryStore implements TicketTriageDataSource {
     { fingerprint: string; proposal: ActionProposal; invoice: InvoiceRecord }
   >();
   public readonly auditLogs: AuditEntry[] = [];
+  public readonly operatorSessions = new Map<string, OperatorSessionRecord>();
 
   async getTicket(id: string): Promise<SupportTicket | null> {
     return this.tickets.get(id) ?? null;

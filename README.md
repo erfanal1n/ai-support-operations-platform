@@ -12,6 +12,7 @@ Assessment decides eligibility. A separate execution step updates the synthetic 
 - `POST /api/tickets/:ticketId/refund-proposals` records a policy-checked proposal and requires an idempotency key.
 - `POST /api/refund-proposals/:proposalId/decision` records an operator approval or rejection.
 - `POST /api/refund-proposals/:proposalId/execute` re-checks policy and updates the invoice record once.
+- Optional session authentication separates support-agent access from supervisor decisions.
 - Refund assessment checks invoice ownership and state, remaining balance, policy window, amount limit, and customer tenure.
 - Policy search returns the matched policy and any exact phrases found in the request.
 - Optional AI triage uses retrieved policy and invoice evidence to draft a response for operator review.
@@ -46,7 +47,19 @@ pnpm dev:web
 
 Open `http://127.0.0.1:5173`. The API listens on `127.0.0.1:3000`; Vite proxies the console's API requests to it.
 
-The console can search and filter the queue, inspect invoice and policy evidence, create refund proposals, record an operator decision, and execute approved or auto-eligible proposals. Execution updates the synthetic invoice record; it does not move money. The operator ID entered for an approval is an audit label, not authentication.
+The console can search and filter the queue, inspect invoice and policy evidence, create refund proposals, record an operator decision, and execute approved or auto-eligible proposals. Execution updates the synthetic invoice record; it does not move money.
+
+## Authentication
+
+Local development keeps authentication disabled by default. Enable session mode with `AUTH_MODE=session`, then generate an operator token and session secret:
+
+```sh
+pnpm auth:config -- operator-17 supervisor
+```
+
+Copy the generated values into `.env`; keep them out of Git. The console exchanges the token at sign-in for an eight-hour, HTTP-only, same-site cookie. The token is not saved in browser storage. An `agent` can review cases and create proposals. A `supervisor` can also approve, reject, and execute refunds. Decisions record the signed-in operator ID; the development mode's operator label is not authentication.
+
+Production mode refuses to start unless PostgreSQL, session authentication, and operator credentials are configured. Production cookies use the `Secure` flag, so serve the app over HTTPS. Operator tokens are configured outside the app; there is no user-management screen or external identity provider. Add operators by appending entries to the `SUPPORT_OPERATOR_TOKENS` JSON array.
 
 ## PostgreSQL
 
@@ -115,6 +128,6 @@ pnpm eval:retrieval
 
 ## Current limits
 
-The memory storage option resets when the process stops. The API has no authentication; `operatorId` is only a caller-supplied label. There is no payment provider integration. Do not use real customer data or expose this server to the internet.
+The memory storage option resets when the process stops. Development mode disables authentication; production requires PostgreSQL and session mode. Operator credentials are managed through environment configuration. There is no payment provider integration or login rate limiter. Keep the app behind HTTPS and a trusted network boundary, and use synthetic customer data.
 
-The console runs through Vite and is not served by the Fastify production server. The AI triage endpoint is optional and disabled by default. Semantic policy vectors remain in memory; there is no streaming response or authentication. The phrase-search baseline is intentionally simple; the missed scenario is kept in the evaluation set so later retrieval changes can be compared against it.
+The console runs through Vite and is not served by the Fastify production server. The AI triage endpoint is optional and disabled by default. Semantic policy vectors remain in memory; there is no streaming response or external identity provider. The phrase-search baseline is intentionally simple; the missed scenario is kept in the evaluation set so later retrieval changes can be compared against it.

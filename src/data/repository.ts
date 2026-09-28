@@ -24,9 +24,19 @@ export interface TicketTriageDataSource {
   listPolicies(): Promise<PolicyRule[]>;
 }
 
+export interface OperatorSessionRecord {
+  sessionHash: string;
+  operatorId: string;
+  credentialHash: string;
+  expiresAt: string;
+}
+
 export interface SupportRepository extends TicketTriageDataSource {
   health(): Promise<void>;
   close(): Promise<void>;
+  createOperatorSession(session: OperatorSessionRecord): Promise<void>;
+  getOperatorSession(sessionHash: string): Promise<OperatorSessionRecord | null>;
+  deleteOperatorSession(sessionHash: string): Promise<void>;
   listTickets(status?: TicketStatus): Promise<TicketListEntry[]>;
   getTicketContext(ticketId: string, policyHits: PolicySearchHit[]): Promise<TicketContext>;
   createTicket(input: CreateTicketInput): Promise<SupportTicket>;

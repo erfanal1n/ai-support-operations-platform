@@ -9,6 +9,7 @@
     "build": "tsc",
     "build:web": "pnpm --filter @support/console build",
     "start": "node dist/index.js",
+    "auth:config": "tsx src/auth/generate-credentials.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "db:migrate": "tsx src/data/migrate.ts",

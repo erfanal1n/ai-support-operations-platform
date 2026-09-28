@@ -52,3 +52,15 @@ export class ServiceUnavailableError extends AppError {
     super(message, 'E_SERVICE_UNAVAILABLE', 503);
   }
 }
+
+export class UnauthorizedError extends AppError {
+  constructor(message = 'Authentication is required') {
+    super(message, 'E_UNAUTHORIZED', 401);
+  }
+}
+
+export class ForbiddenError extends AppError {
+  constructor(message = 'This action requires supervisor access') {
+    super(message, 'E_FORBIDDEN', 403);
+  }
+}

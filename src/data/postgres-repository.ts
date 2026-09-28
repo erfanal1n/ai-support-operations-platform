@@ -16,7 +16,7 @@ import type { DecideRefundProposalInput, RefundDecisionResult } from '../support
 import type { ExecuteRefundInput, ExecuteRefundResult } from '../support/refund-execution.js';
 import type { PolicySearchHit } from '../support/policy-search.js';
 import type { CreateTicketInput, TicketContext, TicketListEntry } from '../support/tickets.js';
-import type { SupportRepository } from './repository.js';
+import type { OperatorSessionRecord, SupportRepository } from './repository.js';
 
 interface CustomerRow extends QueryResultRow {
   id: string;
@@ -179,19 +179,58 @@ export class PostgresSupportRepository implements SupportRepository {
   }
 
   async health(): Promise<void> {
-    const result = await this.pool.query<{ tickets: string | null; proposals: string | null; schema: string | null }>(
+    const result = await this.pool.query<{
+      tickets: string | null;
+      proposals: string | null;
+      sessions: string | null;
+      schema: string | null;
+    }>(
       `SELECT to_regclass('public.tickets') AS tickets,
               to_regclass('public.action_proposals') AS proposals,
+              to_regclass('public.operator_sessions') AS sessions,
               to_regclass('public.schema_migrations') AS schema`
     );
     const schema = result.rows[0];
-    if (!schema?.tickets || !schema.proposals || !schema.schema) {
+    if (!schema?.tickets || !schema.proposals || !schema.sessions || !schema.schema) {
       throw new Error('Database schema is missing; run pnpm db:migrate');
     }
   }
 
   async close(): Promise<void> {
     await this.pool.end();
+  }
+
+  async createOperatorSession(session: OperatorSessionRecord): Promise<void> {
+    await this.transaction(async (client) => {
+      await client.query('DELETE FROM operator_sessions WHERE expires_at <= NOW()');
+      await client.query(
+        `INSERT INTO operator_sessions(session_hash, operator_id, credential_hash, expires_at)
+         VALUES ($1, $2, $3, $4)`,
+        [session.sessionHash, session.operatorId, session.credentialHash, session.expiresAt]
+      );
+    });
+  }
+
+  async getOperatorSession(sessionHash: string): Promise<OperatorSessionRecord | null> {
+    const result = await this.pool.query<{
+      operator_id: string;
+      credential_hash: string;
+      expires_at: Date;
+    }>(
+      'SELECT operator_id, credential_hash, expires_at FROM operator_sessions WHERE session_hash = $1 AND expires_at > NOW()',
+      [sessionHash]
+    );
+    const row = result.rows[0];
+    return row ? {
+      sessionHash,
+      operatorId: row.operator_id,
+      credentialHash: row.credential_hash,
+      expiresAt: row.expires_at.toISOString(),
+    } : null;
+  }
+
+  async deleteOperatorSession(sessionHash: string): Promise<void> {
+    await this.pool.query('DELETE FROM operator_sessions WHERE session_hash = $1', [sessionHash]);
   }
 
   async getTicket(id: string): Promise<SupportTicket | null> {

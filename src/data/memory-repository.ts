@@ -14,7 +14,7 @@ import type { PolicySearchHit } from '../support/policy-search.js';
 import type { CreateTicketInput, TicketContext, TicketListEntry } from '../support/tickets.js';
 import { createTicket, getTicketContext, listTickets } from '../support/tickets.js';
 import type { MemoryStore } from './db.js';
-import type { SupportRepository } from './repository.js';
+import type { OperatorSessionRecord, SupportRepository } from './repository.js';
 import type { TicketStatus } from '../core/types.js';
 
 export class MemorySupportRepository implements SupportRepository {
@@ -23,6 +23,26 @@ export class MemorySupportRepository implements SupportRepository {
   async health(): Promise<void> {}
 
   async close(): Promise<void> {}
+
+  async createOperatorSession(session: OperatorSessionRecord): Promise<void> {
+    for (const [id, current] of this.store.operatorSessions) {
+      if (Date.parse(current.expiresAt) <= Date.now()) this.store.operatorSessions.delete(id);
+    }
+    this.store.operatorSessions.set(session.sessionHash, session);
+  }
+
+  async getOperatorSession(sessionHash: string): Promise<OperatorSessionRecord | null> {
+    const session = this.store.operatorSessions.get(sessionHash);
+    if (!session || Date.parse(session.expiresAt) <= Date.now()) {
+      this.store.operatorSessions.delete(sessionHash);
+      return null;
+    }
+    return session;
+  }
+
+  async deleteOperatorSession(sessionHash: string): Promise<void> {
+    this.store.operatorSessions.delete(sessionHash);
+  }
 
   async getTicket(id: string) {
     return this.store.getTicket(id);

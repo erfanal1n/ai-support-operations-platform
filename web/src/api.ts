@@ -1,5 +1,15 @@
 import type { TicketContext, TicketStatus, TicketSummary } from './types';
 
+export interface OperatorSession {
+  id: string;
+  role: 'agent' | 'supervisor';
+}
+
+export interface SessionStatus {
+  authRequired: boolean;
+  operator: OperatorSession | null;
+}
+
 interface ApiErrorBody {
   error?: { code?: string; message?: string };
 }
@@ -7,6 +17,7 @@ interface ApiErrorBody {
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(path, {
     ...init,
+    credentials: init.credentials ?? 'same-origin',
     headers: {
       ...(init.body === undefined ? {} : { 'Content-Type': 'application/json' }),
       ...init.headers,
@@ -21,6 +32,18 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
   if (body === null) throw new Error('The server returned an empty response');
   return body as T;
+}
+
+export function fetchSession(signal?: AbortSignal): Promise<SessionStatus> {
+  return request<SessionStatus>('/api/session', { signal });
+}
+
+export function loginOperator(id: string, token: string): Promise<{ operator: OperatorSession }> {
+  return request('/api/session/login', { method: 'POST', body: JSON.stringify({ id, token }) });
+}
+
+export function logoutOperator(): Promise<{ ok: boolean }> {
+  return request('/api/session/logout', { method: 'POST' });
 }
 
 export async function fetchTickets(signal?: AbortSignal): Promise<TicketSummary[]> {

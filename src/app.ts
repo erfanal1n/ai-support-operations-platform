@@ -1,10 +1,25 @@
-import Fastify from 'fastify';
+import Fastify, { type FastifyRequest } from 'fastify';
 import { z, type ZodIssue } from 'zod';
-import { AppError, NotFoundError, ServiceUnavailableError, ValidationError } from './core/errors.js';
+import {
+  AppError,
+  ForbiddenError,
+  NotFoundError,
+  ServiceUnavailableError,
+  StateConflictError,
+  UnauthorizedError,
+  ValidationError,
+} from './core/errors.js';
 import { env } from './config/env.js';
 import { db, MemoryStore } from './data/db.js';
 import { MemorySupportRepository } from './data/memory-repository.js';
 import type { SupportRepository } from './data/repository.js';
+import {
+  authenticateOperator,
+  clearSessionCookie,
+  createSession,
+  credentialFingerprint,
+  readSession,
+} from './auth/session.js';
 import { TicketTriageAgent } from './ai/ticket-triage.js';
 import { createPolicySearch } from './support/policy-retrieval.js';
 import type { PolicySearchEngine } from './support/policy-search.js';
@@ -32,9 +47,35 @@ const refundProposalParamsSchema = z.object({ proposalId: z.string().trim().min(
 const refundDecisionSchema = z
   .object({
     decision: z.enum(['APPROVE', 'REJECT']),
-    operatorId: z.string().trim().min(1).max(120),
+    operatorId: z.string().trim().min(1).max(120).optional(),
   })
   .strict();
+const loginSchema = z.object({
+  id: z.string().trim().min(1).max(120),
+  token: z.string().min(1).max(512),
+}).strict();
+
+function requireAgent(request: FastifyRequest): void {
+  if (env.AUTH_MODE === 'session' && !request.operator) throw new UnauthorizedError();
+}
+
+function requireSupervisor(request: FastifyRequest): void {
+  requireAgent(request);
+  if (env.AUTH_MODE === 'session' && request.operator?.role !== 'supervisor') throw new ForbiddenError();
+}
+
+async function requestOperator(request: FastifyRequest, repository: SupportRepository) {
+  if (env.AUTH_MODE !== 'session') return null;
+  const signed = readSession(request.headers.cookie, env.SESSION_SECRET ?? '');
+  if (!signed) return null;
+
+  const session = await repository.getOperatorSession(signed.sessionHash);
+  if (!session || session.expiresAt !== signed.expiresAt) return null;
+
+  const credential = env.SUPPORT_OPERATOR_TOKENS.find(({ id }) => id === session.operatorId);
+  if (!credential || credentialFingerprint(credential.token) !== session.credentialHash) return null;
+  return { id: credential.id, role: credential.role };
+}
 
 function requestValidationError(message: string, issues: ZodIssue[]): ValidationError {
   return new ValidationError(
@@ -53,7 +94,22 @@ export function buildApp(
     ? new TicketTriageAgent(env.OPENAI_API_KEY, env.OPENAI_TRIAGE_MODEL, repository, policySearch)
     : undefined;
 
+  app.decorateRequest('operator', null);
   app.addHook('onClose', async () => repository.close());
+
+  const publicRequests = new Set([
+    'GET /health',
+    'GET /api/session',
+    'POST /api/session/login',
+    'POST /api/session/logout',
+  ]);
+  app.addHook('preHandler', async (request) => {
+    const path = request.url.split('?')[0];
+    if (env.AUTH_MODE !== 'session' || publicRequests.has(`${request.method} ${path}`)) return;
+
+    request.operator = await requestOperator(request, repository);
+    if (!request.operator) throw new UnauthorizedError();
+  });
 
   app.setErrorHandler((err, request, reply) => {
     if (err instanceof AppError) {
@@ -83,7 +139,36 @@ export function buildApp(
     return { status: 'ok' };
   });
 
+  app.get('/api/session', async (request) => ({
+    authRequired: env.AUTH_MODE === 'session',
+    operator: await requestOperator(request, repository),
+  }));
+
+  app.post('/api/session/login', async (request, reply) => {
+    if (env.AUTH_MODE !== 'session') throw new StateConflictError('Session authentication is not enabled');
+
+    const parsed = loginSchema.safeParse(request.body);
+    if (!parsed.success) throw requestValidationError('Login request is invalid', parsed.error.issues);
+
+    const operator = authenticateOperator(parsed.data.id, parsed.data.token, env.SUPPORT_OPERATOR_TOKENS);
+    if (!operator) throw new UnauthorizedError('Operator ID or token is invalid');
+    const credential = env.SUPPORT_OPERATOR_TOKENS.find(({ id }) => id === operator.id)!;
+    const session = createSession(credential, env.SESSION_SECRET ?? '', env.NODE_ENV === 'production');
+
+    await repository.createOperatorSession(session);
+    reply.header('Set-Cookie', session.cookie);
+    return { operator };
+  });
+
+  app.post('/api/session/logout', async (request, reply) => {
+    const session = readSession(request.headers.cookie, env.SESSION_SECRET ?? '');
+    if (session) await repository.deleteOperatorSession(session.sessionHash);
+    reply.header('Set-Cookie', clearSessionCookie(env.NODE_ENV === 'production'));
+    return { ok: true };
+  });
+
   app.get('/api/tickets', async (request) => {
+    requireAgent(request);
     const parsed = ticketListQuerySchema.safeParse(request.query);
     if (!parsed.success) {
       throw requestValidationError('Ticket query is invalid', parsed.error.issues);
@@ -93,6 +178,7 @@ export function buildApp(
   });
 
   app.get('/api/tickets/:ticketId', async (request) => {
+    requireAgent(request);
     const parsed = ticketParamsSchema.safeParse(request.params);
     if (!parsed.success) {
       throw requestValidationError('Ticket ID is invalid', parsed.error.issues);
@@ -113,6 +199,7 @@ export function buildApp(
   });
 
   app.post('/api/tickets/:ticketId/triage', async (request) => {
+    requireAgent(request);
     const parsed = ticketParamsSchema.safeParse(request.params);
     if (!parsed.success) {
       throw requestValidationError('Ticket ID is invalid', parsed.error.issues);
@@ -130,6 +217,7 @@ export function buildApp(
   });
 
   app.post('/api/tickets', async (request, reply) => {
+    requireAgent(request);
     const parsed = createTicketSchema.safeParse(request.body);
     if (!parsed.success) {
       throw requestValidationError('Ticket request is invalid', parsed.error.issues);
@@ -140,6 +228,7 @@ export function buildApp(
   });
 
   app.post('/api/tickets/:ticketId/refund-proposals', async (request, reply) => {
+    requireAgent(request);
     const params = ticketParamsSchema.safeParse(request.params);
     if (!params.success) {
       throw requestValidationError('Ticket ID is invalid', params.error.issues);
@@ -164,6 +253,7 @@ export function buildApp(
   });
 
   app.post('/api/refund-proposals/:proposalId/decision', async (request, reply) => {
+    requireSupervisor(request);
     const params = refundProposalParamsSchema.safeParse(request.params);
     if (!params.success) {
       throw requestValidationError('Refund proposal ID is invalid', params.error.issues);
@@ -179,8 +269,12 @@ export function buildApp(
       throw requestValidationError('Idempotency-Key header is required', key.error.issues);
     }
 
+    const operatorId = request.operator?.id ?? body.data.operatorId;
+    if (!operatorId) throw requestValidationError('Operator ID is required', []);
+
     const result = await repository.decideRefundProposal({
       ...body.data,
+      operatorId,
       proposalId: params.data.proposalId,
       idempotencyKey: key.data,
     });
@@ -188,6 +282,7 @@ export function buildApp(
   });
 
   app.post('/api/refund-proposals/:proposalId/execute', async (request, reply) => {
+    requireSupervisor(request);
     const params = refundProposalParamsSchema.safeParse(request.params);
     if (!params.success) {
       throw requestValidationError('Refund proposal ID is invalid', params.error.issues);
