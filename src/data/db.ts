@@ -6,8 +6,9 @@ import type {
   PolicyRule,
   SupportTicket,
 } from '../core/types.js';
+import type { TicketTriageDataSource } from './repository.js';
 
-export class MemoryStore {
+export class MemoryStore implements TicketTriageDataSource {
   public readonly policies: Map<string, PolicyRule> = new Map();
   public readonly customers: Map<string, CustomerProfile> = new Map();
   public readonly invoices: Map<string, InvoiceRecord> = new Map();
@@ -20,6 +21,22 @@ export class MemoryStore {
     { fingerprint: string; proposal: ActionProposal; invoice: InvoiceRecord }
   >();
   public readonly auditLogs: AuditEntry[] = [];
+
+  async getTicket(id: string): Promise<SupportTicket | null> {
+    return this.tickets.get(id) ?? null;
+  }
+
+  async getCustomer(id: string): Promise<CustomerProfile | null> {
+    return this.customers.get(id) ?? null;
+  }
+
+  async listCustomerInvoices(customerId: string): Promise<InvoiceRecord[]> {
+    return [...this.invoices.values()].filter((invoice) => invoice.customerId === customerId);
+  }
+
+  async listPolicies(): Promise<PolicyRule[]> {
+    return [...this.policies.values()];
+  }
 
   constructor() {
     this.seedDefaults();

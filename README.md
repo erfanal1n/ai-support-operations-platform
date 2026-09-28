@@ -15,13 +15,13 @@ Assessment decides eligibility. A separate execution step updates the synthetic 
 - Refund assessment checks invoice ownership and state, remaining balance, policy window, amount limit, and customer tenure.
 - Policy search returns the matched policy and any exact phrases found in the request.
 - Optional AI triage uses retrieved policy and invoice evidence to draft a response for operator review.
-- The in-memory store starts with synthetic tickets, customers, invoices, and policies.
+- Memory and PostgreSQL storage start with the same synthetic tickets, customers, invoices, and policies.
 
 ```mermaid
 flowchart LR
   Console[React support console] -->|HTTP| API[Fastify API]
   API -->|Zod validation| TicketService[Ticket service]
-  TicketService --> Store[(In-memory store)]
+  TicketService --> Store[(Memory or PostgreSQL)]
   TicketService --> Audit[Audit log]
   RefundRequest[Refund request] --> Assessment[Refund assessment]
   Policy[Refund policy] --> Assessment
@@ -46,7 +46,19 @@ pnpm dev:web
 
 Open `http://127.0.0.1:5173`. The API listens on `127.0.0.1:3000`; Vite proxies the console's API requests to it.
 
-The console can search and filter the queue, inspect invoice and policy evidence, create refund proposals, record an operator decision, and execute approved or auto-eligible proposals. Execution only changes the synthetic in-memory invoice fixture. The operator ID entered for an approval is an audit label, not authentication.
+The console can search and filter the queue, inspect invoice and policy evidence, create refund proposals, record an operator decision, and execute approved or auto-eligible proposals. Execution updates the synthetic invoice record; it does not move money. The operator ID entered for an approval is an audit label, not authentication.
+
+## PostgreSQL
+
+PostgreSQL is optional; memory storage remains the default. Start the local database, copy `.env.example` to `.env`, set `STORAGE_MODE=postgres`, then apply the schema and seed data:
+
+```sh
+docker compose up -d
+pnpm db:migrate
+pnpm dev
+```
+
+The API checks that the schema is present at startup. PostgreSQL transactions persist tickets, proposals, approvals, invoice updates, idempotency responses, and audit entries. The sample rows are synthetic.
 
 ## Policy retrieval
 
@@ -103,6 +115,6 @@ pnpm eval:retrieval
 
 ## Current limits
 
-This is still a local prototype. Tickets, proposals, invoices, and audit entries disappear when the process stops. The API has no authentication; `operatorId` is only a caller-supplied label. There is no payment provider integration. Do not use real customer data or expose this server to the internet.
+The memory storage option resets when the process stops. The API has no authentication; `operatorId` is only a caller-supplied label. There is no payment provider integration. Do not use real customer data or expose this server to the internet.
 
-The console runs through Vite and is not served by the Fastify production server. The AI triage endpoint is optional and disabled by default. There is no durable database or vector store, streaming response, or authentication. The phrase-search baseline is intentionally simple; the missed scenario is kept in the evaluation set so later retrieval changes can be compared against it.
+The console runs through Vite and is not served by the Fastify production server. The AI triage endpoint is optional and disabled by default. Semantic policy vectors remain in memory; there is no streaming response or authentication. The phrase-search baseline is intentionally simple; the missed scenario is kept in the evaluation set so later retrieval changes can be compared against it.

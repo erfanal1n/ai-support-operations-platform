@@ -1,7 +1,7 @@
 import OpenAI from 'openai';
 import { z } from 'zod';
 import type { ResponseInput } from 'openai/resources/responses/responses.js';
-import type { MemoryStore } from '../data/db.js';
+import type { TicketTriageDataSource } from '../data/repository.js';
 import type { PolicySearchEngine } from '../support/policy-search.js';
 
 const outputSchema = z.object({
@@ -77,17 +77,17 @@ export class TicketTriageAgent {
   constructor(
     apiKey: string,
     private readonly model: string,
-    private readonly store: MemoryStore,
+    private readonly data: TicketTriageDataSource,
     private readonly policySearch: PolicySearchEngine
   ) {
     this.client = new OpenAI({ apiKey, timeout: 30_000, maxRetries: 2 });
   }
 
   async triage(ticketId: string): Promise<TicketTriage> {
-    const ticket = this.store.tickets.get(ticketId);
+    const ticket = await this.data.getTicket(ticketId);
     if (!ticket) throw new Error(`Ticket '${ticketId}' was not found`);
 
-    const customer = this.store.customers.get(ticket.customerId);
+    const customer = await this.data.getCustomer(ticket.customerId);
     if (!customer) throw new Error(`Customer '${ticket.customerId}' was not found`);
 
     let policyEvidence: Array<{ id: string; title: string; summary: string; fullText: string }> | null = null;
@@ -135,7 +135,7 @@ export class TicketTriageAgent {
       if (call.name === 'search_ticket_policies') {
         if (!policyEvidence) {
           const hits = await this.policySearch.search(
-            this.store.policies.values(),
+            await this.data.listPolicies(),
             `${ticket.subject}\n${ticket.rawMessage}`
           );
           policyEvidence = hits.map(({ policy }) => ({
@@ -148,8 +148,7 @@ export class TicketTriageAgent {
         output = policyEvidence;
       } else if (call.name === 'list_ticket_invoices') {
         if (!invoiceEvidence) {
-          invoiceEvidence = [...this.store.invoices.values()]
-            .filter((invoice) => invoice.customerId === ticket.customerId)
+          invoiceEvidence = (await this.data.listCustomerInvoices(ticket.customerId))
             .map(({ id, amountCents, refundedAmountCents, currency, status, issuedAt }) => ({
               id,
               amountCents,

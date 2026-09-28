@@ -3,13 +3,11 @@ import { z, type ZodIssue } from 'zod';
 import { AppError, NotFoundError, ServiceUnavailableError, ValidationError } from './core/errors.js';
 import { env } from './config/env.js';
 import { db, MemoryStore } from './data/db.js';
+import { MemorySupportRepository } from './data/memory-repository.js';
+import type { SupportRepository } from './data/repository.js';
 import { TicketTriageAgent } from './ai/ticket-triage.js';
-import { decideRefundProposal } from './support/refund-decisions.js';
-import { executeRefundProposal } from './support/refund-execution.js';
-import { createRefundProposal } from './support/refund-proposals.js';
 import { createPolicySearch } from './support/policy-retrieval.js';
 import type { PolicySearchEngine } from './support/policy-search.js';
-import { createTicket, getTicketContext, listTickets } from './support/tickets.js';
 
 const createTicketSchema = z
   .object({
@@ -45,11 +43,17 @@ function requestValidationError(message: string, issues: ZodIssue[]): Validation
   );
 }
 
-export function buildApp(store: MemoryStore = db, policySearch: PolicySearchEngine = createPolicySearch(env)) {
+export function buildApp(
+  source: MemoryStore | SupportRepository = db,
+  policySearch: PolicySearchEngine = createPolicySearch(env)
+) {
+  const repository = source instanceof MemoryStore ? new MemorySupportRepository(source) : source;
   const app = Fastify({ logger: { level: env.LOG_LEVEL } });
   const triageAgent = env.AI_TRIAGE_MODE === 'openai' && env.OPENAI_API_KEY
-    ? new TicketTriageAgent(env.OPENAI_API_KEY, env.OPENAI_TRIAGE_MODEL, store, policySearch)
+    ? new TicketTriageAgent(env.OPENAI_API_KEY, env.OPENAI_TRIAGE_MODEL, repository, policySearch)
     : undefined;
+
+  app.addHook('onClose', async () => repository.close());
 
   app.setErrorHandler((err, request, reply) => {
     if (err instanceof AppError) {
@@ -74,7 +78,10 @@ export function buildApp(store: MemoryStore = db, policySearch: PolicySearchEngi
     });
   });
 
-  app.get('/health', async () => ({ status: 'ok' }));
+  app.get('/health', async () => {
+    await repository.health();
+    return { status: 'ok' };
+  });
 
   app.get('/api/tickets', async (request) => {
     const parsed = ticketListQuerySchema.safeParse(request.query);
@@ -82,7 +89,7 @@ export function buildApp(store: MemoryStore = db, policySearch: PolicySearchEngi
       throw requestValidationError('Ticket query is invalid', parsed.error.issues);
     }
 
-    return { tickets: listTickets(store, parsed.data.status) };
+    return { tickets: await repository.listTickets(parsed.data.status) };
   });
 
   app.get('/api/tickets/:ticketId', async (request) => {
@@ -91,16 +98,18 @@ export function buildApp(store: MemoryStore = db, policySearch: PolicySearchEngi
       throw requestValidationError('Ticket ID is invalid', parsed.error.issues);
     }
 
-    const ticket = store.tickets.get(parsed.data.ticketId);
-    if (!ticket) return getTicketContext(store, parsed.data.ticketId);
+    const ticket = await repository.getTicket(parsed.data.ticketId);
+    if (!ticket) throw new NotFoundError('Ticket', parsed.data.ticketId);
 
+    let hits;
     try {
-      const hits = await policySearch.search(store.policies.values(), ticket.rawMessage);
-      return getTicketContext(store, parsed.data.ticketId, hits);
+      hits = await policySearch.search(await repository.listPolicies(), ticket.rawMessage);
     } catch {
       request.log.error('Policy retrieval failed');
       throw new ServiceUnavailableError('Policy retrieval is temporarily unavailable');
     }
+
+    return repository.getTicketContext(parsed.data.ticketId, hits);
   });
 
   app.post('/api/tickets/:ticketId/triage', async (request) => {
@@ -109,7 +118,7 @@ export function buildApp(store: MemoryStore = db, policySearch: PolicySearchEngi
       throw requestValidationError('Ticket ID is invalid', parsed.error.issues);
     }
 
-    if (!store.tickets.has(parsed.data.ticketId)) throw new NotFoundError('Ticket', parsed.data.ticketId);
+    if (!await repository.getTicket(parsed.data.ticketId)) throw new NotFoundError('Ticket', parsed.data.ticketId);
     if (!triageAgent) throw new ServiceUnavailableError('AI ticket triage is not enabled');
 
     try {
@@ -126,7 +135,7 @@ export function buildApp(store: MemoryStore = db, policySearch: PolicySearchEngi
       throw requestValidationError('Ticket request is invalid', parsed.error.issues);
     }
 
-    const ticket = createTicket(store, parsed.data);
+    const ticket = await repository.createTicket(parsed.data);
     return reply.code(201).send({ ticket });
   });
 
@@ -146,7 +155,7 @@ export function buildApp(store: MemoryStore = db, policySearch: PolicySearchEngi
       throw requestValidationError('Idempotency-Key header is required', key.error.issues);
     }
 
-    const result = createRefundProposal(store, {
+    const result = await repository.createRefundProposal({
       ...body.data,
       ticketId: params.data.ticketId,
       idempotencyKey: key.data,
@@ -170,7 +179,7 @@ export function buildApp(store: MemoryStore = db, policySearch: PolicySearchEngi
       throw requestValidationError('Idempotency-Key header is required', key.error.issues);
     }
 
-    const result = decideRefundProposal(store, {
+    const result = await repository.decideRefundProposal({
       ...body.data,
       proposalId: params.data.proposalId,
       idempotencyKey: key.data,
@@ -189,7 +198,7 @@ export function buildApp(store: MemoryStore = db, policySearch: PolicySearchEngi
       throw requestValidationError('Idempotency-Key header is required', key.error.issues);
     }
 
-    const result = executeRefundProposal(store, {
+    const result = await repository.executeRefundProposal({
       proposalId: params.data.proposalId,
       idempotencyKey: key.data,
     });

@@ -1,25 +1,32 @@
 import { buildApp } from './app.js';
 import { env } from './config/env.js';
+import { createSupportRepository } from './data/create-repository.js';
+import type { SupportRepository } from './data/repository.js';
+import type { FastifyInstance } from 'fastify';
 
-const app = buildApp();
+let app: FastifyInstance | undefined;
+let repository: SupportRepository | undefined;
 let shutdownStarted = false;
 
 function shutDown(signal: NodeJS.Signals): void {
   if (shutdownStarted) return;
   shutdownStarted = true;
 
-  app.log.info({ signal }, 'Closing server');
+  const runningApp = app;
+  if (!runningApp) return;
+
+  runningApp.log.info({ signal }, 'Closing server');
   const deadline = setTimeout(() => {
-    app.log.error('Server close timed out');
+    runningApp.log.error('Server close timed out');
     process.exit(1);
   }, 10_000);
   deadline.unref();
 
-  void app.close().then(
+  void runningApp.close().then(
     () => clearTimeout(deadline),
     (err: unknown) => {
       clearTimeout(deadline);
-      app.log.error({ err }, 'Failed to close server');
+      runningApp.log.error({ err }, 'Failed to close server');
       process.exitCode = 1;
     }
   );
@@ -29,8 +36,16 @@ process.once('SIGINT', shutDown);
 process.once('SIGTERM', shutDown);
 
 try {
-  await app.listen({ host: env.HOST, port: env.PORT });
+  repository = await createSupportRepository(env);
+  const runningApp = buildApp(repository);
+  app = runningApp;
+  await runningApp.listen({ host: env.HOST, port: env.PORT });
 } catch (err) {
-  app.log.error({ err }, 'Failed to start server');
+  if (app) {
+    app.log.error({ err }, 'Failed to start server');
+  } else {
+    process.stderr.write(`Failed to start server: ${err instanceof Error ? err.message : 'unknown error'}\n`);
+  }
+  if (repository) await repository.close();
   process.exitCode = 1;
 }
