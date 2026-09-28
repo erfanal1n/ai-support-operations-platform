@@ -8,6 +8,7 @@ export interface PolicyRule {
   fullText: string;
   maxAutoApprovedCents: number;
   minTenureDays: number;
+  refundWindowDays?: number;
   keywords: string[];
 }
 
@@ -22,12 +23,13 @@ export interface CustomerProfile {
   riskScore: number;
 }
 
-export type InvoiceStatus = 'paid' | 'refunded' | 'disputed';
+export type InvoiceStatus = 'paid' | 'partially_refunded' | 'refunded' | 'disputed';
 
 export interface InvoiceRecord {
   id: string;
   customerId: string;
   amountCents: number;
+  refundedAmountCents: number;
   currency: string;
   status: InvoiceStatus;
   issuedAt: string;
