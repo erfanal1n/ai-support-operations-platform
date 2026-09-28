@@ -2,7 +2,7 @@
 
 A local support workflow prototype for billing questions. It records customer tickets and checks refund requests against explicit policy rules before any action is taken.
 
-Refund assessment is read-only. It never issues a refund or changes an invoice.
+Assessment decides eligibility. A separate execution step updates the synthetic invoice record; it does not move money through a payment provider.
 
 ## What works now
 
@@ -11,6 +11,7 @@ Refund assessment is read-only. It never issues a refund or changes an invoice.
 - `GET /api/tickets` lists the queue; ticket detail includes the customer's invoices and matched policy phrases.
 - `POST /api/tickets/:ticketId/refund-proposals` records a policy-checked proposal and requires an idempotency key.
 - `POST /api/refund-proposals/:proposalId/decision` records an operator approval or rejection.
+- `POST /api/refund-proposals/:proposalId/execute` re-checks policy and updates the invoice record once.
 - Refund assessment checks invoice ownership and state, remaining balance, policy window, amount limit, and customer tenure.
 - Policy keyword search returns the matched phrases alongside each policy.
 - The in-memory store starts with synthetic tickets, customers, invoices, and policies.
@@ -61,6 +62,8 @@ This case requires operator approval because the customer account is under 30 da
 
 The decision endpoint takes `{"decision":"APPROVE","operatorId":"operator-17"}` (or `REJECT`) and its own idempotency key. It changes proposal and ticket state, but does not issue a refund.
 
+Execution uses another idempotency key. It only runs for auto-eligible proposals or proposals already approved by an operator. The refund is recorded against the synthetic invoice fixture.
+
 ## Checks
 
 ```sh
@@ -74,6 +77,6 @@ The current phrase-search baseline finds the expected policy in 5 of 6 synthetic
 
 ## Current limits
 
-This is still a local prototype. Tickets, proposals, and audit entries disappear when the process stops. The API has no authentication; `operatorId` is only a caller-supplied label. Refunds cannot be executed yet. Do not use real customer data or expose this server to the internet.
+This is still a local prototype. Tickets, proposals, invoices, and audit entries disappear when the process stops. The API has no authentication; `operatorId` is only a caller-supplied label. There is no payment provider integration. Do not use real customer data or expose this server to the internet.
 
 There is no model provider, vector retrieval, approval screen, or frontend yet. The phrase-search baseline is intentionally simple; the missed scenario is kept in the evaluation set so later retrieval changes can be compared against it.

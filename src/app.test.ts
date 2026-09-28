@@ -213,4 +213,68 @@ describe('health endpoint', () => {
     expect(store.tickets.get('ticket_solo_duplicate_charge')?.status).toBe('open');
     expect(store.auditLogs.filter(({ actionType }) => actionType === 'REFUND_APPROVE')).toHaveLength(1);
   });
+
+  it('executes an approved refund once through the API', async () => {
+    const store = new MemoryStore();
+    const app = buildApp(store);
+    apps.push(app);
+    const proposalResponse = await app.inject({
+      method: 'POST',
+      url: '/api/tickets/ticket_solo_duplicate_charge/refund-proposals',
+      headers: { 'idempotency-key': 'refund-proposal-solo-001' },
+      payload: {
+        invoiceId: 'inv_solo_001',
+        policyId: 'POL-REFUND-STANDARD',
+        amountCents: 2900,
+      },
+    });
+    const proposalId = proposalResponse.json().proposal.id as string;
+    await app.inject({
+      method: 'POST',
+      url: `/api/refund-proposals/${proposalId}/decision`,
+      headers: { 'idempotency-key': 'refund-approval-solo-001' },
+      payload: { decision: 'APPROVE', operatorId: 'operator-17' },
+    });
+    const executeRequest = {
+      method: 'POST' as const,
+      url: `/api/refund-proposals/${proposalId}/execute`,
+      headers: { 'idempotency-key': 'refund-execution-solo-001' },
+    };
+
+    const first = await app.inject(executeRequest);
+    const replay = await app.inject(executeRequest);
+
+    expect(first.statusCode).toBe(201);
+    expect(first.json().proposal.status).toBe('EXECUTED');
+    expect(first.json().invoice).toMatchObject({ refundedAmountCents: 2900, status: 'refunded' });
+    expect(replay.statusCode).toBe(200);
+    expect(replay.json().replayed).toBe(true);
+    expect(store.auditLogs.filter(({ actionType }) => actionType === 'REFUND_EXECUTED')).toHaveLength(1);
+  });
+
+  it('blocks execution of a proposal waiting for approval', async () => {
+    const store = new MemoryStore();
+    const app = buildApp(store);
+    apps.push(app);
+    const proposalResponse = await app.inject({
+      method: 'POST',
+      url: '/api/tickets/ticket_solo_duplicate_charge/refund-proposals',
+      headers: { 'idempotency-key': 'refund-proposal-solo-001' },
+      payload: {
+        invoiceId: 'inv_solo_001',
+        policyId: 'POL-REFUND-STANDARD',
+        amountCents: 2900,
+      },
+    });
+    const proposalId = proposalResponse.json().proposal.id as string;
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/refund-proposals/${proposalId}/execute`,
+      headers: { 'idempotency-key': 'refund-execution-solo-001' },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(store.invoices.get('inv_solo_001')?.refundedAmountCents).toBe(0);
+  });
 });

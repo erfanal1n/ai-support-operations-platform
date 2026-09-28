@@ -4,6 +4,7 @@ import { AppError, ValidationError } from './core/errors.js';
 import { env } from './config/env.js';
 import { db, MemoryStore } from './data/db.js';
 import { decideRefundProposal } from './support/refund-decisions.js';
+import { executeRefundProposal } from './support/refund-execution.js';
 import { createRefundProposal } from './support/refund-proposals.js';
 import { createTicket, getTicketContext, listTickets } from './support/tickets.js';
 
@@ -139,6 +140,24 @@ export function buildApp(store: MemoryStore = db) {
 
     const result = decideRefundProposal(store, {
       ...body.data,
+      proposalId: params.data.proposalId,
+      idempotencyKey: key.data,
+    });
+    return reply.code(result.replayed ? 200 : 201).send(result);
+  });
+
+  app.post('/api/refund-proposals/:proposalId/execute', async (request, reply) => {
+    const params = refundProposalParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      throw requestValidationError('Refund proposal ID is invalid', params.error.issues);
+    }
+
+    const key = idempotencyKeySchema.safeParse(request.headers['idempotency-key']);
+    if (!key.success) {
+      throw requestValidationError('Idempotency-Key header is required', key.error.issues);
+    }
+
+    const result = executeRefundProposal(store, {
       proposalId: params.data.proposalId,
       idempotencyKey: key.data,
     });
