@@ -1,0 +1,154 @@
+import type {
+  ActionProposal,
+  AuditEntry,
+  CustomerProfile,
+  InvoiceRecord,
+  PolicyRule,
+  SupportTicket,
+} from '../core/types.js';
+
+export class MemoryStore {
+  public readonly policies: Map<string, PolicyRule> = new Map();
+  public readonly customers: Map<string, CustomerProfile> = new Map();
+  public readonly invoices: Map<string, InvoiceRecord> = new Map();
+  public readonly tickets: Map<string, SupportTicket> = new Map();
+  public readonly proposals: Map<string, ActionProposal> = new Map();
+  public readonly auditLogs: AuditEntry[] = [];
+
+  constructor() {
+    this.seedDefaults();
+  }
+
+  private seedDefaults(): void {
+    const defaultPolicies: PolicyRule[] = [
+      {
+        id: 'POL-REFUND-STANDARD',
+        category: 'refund',
+        title: 'Standard Subscription Refund Policy',
+        summary: 'Refunds permitted for billing issues within 14 days of invoice.',
+        fullText: 'Customers may request a full or partial refund within 14 days of billing if service expectations were not met. Automatic approval is limited to $50.00. Amounts above $50.00 or accounts under 30 days tenure require supervisor approval.',
+        maxAutoApprovedCents: 5000,
+        minTenureDays: 30,
+        keywords: ['refund', 'double charge', 'charged twice', 'billing mistake', 'money back'],
+      },
+      {
+        id: 'POL-REFUND-OUTAGE',
+        category: 'refund',
+        title: 'Platform Service Outage Compensation',
+        summary: 'Pro-rated credit or refund for verified system downtime.',
+        fullText: 'In the event of an unplanned platform outage exceeding 2 hours, affected accounts may be credited or refunded up to $150.00 automatically.',
+        maxAutoApprovedCents: 15000,
+        minTenureDays: 0,
+        keywords: ['outage', 'downtime', 'server down', 'incident', 'offline'],
+      },
+      {
+        id: 'POL-TRIAL-EXTEND',
+        category: 'account_tier',
+        title: 'Evaluation Trial Extension',
+        summary: 'Permits 7-day trial extension for accounts actively testing features.',
+        fullText: 'Trial accounts with ongoing technical evaluation may be granted one 7-day extension. Automatic approval applies if risk score is under 25.',
+        maxAutoApprovedCents: 0,
+        minTenureDays: 0,
+        keywords: ['extend trial', 'more time', 'testing period', 'trial expired'],
+      },
+      {
+        id: 'POL-DISPUTE-ESCALATE',
+        category: 'dispute',
+        title: 'Fraud and Chargeback Risk Escalation',
+        summary: 'Immediate escalation to Risk Operations on chargeback threats.',
+        fullText: 'Any explicit mention of unauthorized card usage, bank dispute, or lawyer escalation must bypass auto-actions and transition ticket directly to Tier 2 Risk Operations.',
+        maxAutoApprovedCents: 0,
+        minTenureDays: 0,
+        keywords: ['fraud', 'stolen card', 'chargeback', 'bank dispute', 'unauthorized transaction'],
+      },
+    ];
+
+    for (const pol of defaultPolicies) {
+      this.policies.set(pol.id, pol);
+    }
+
+    const defaultCustomers: CustomerProfile[] = [
+      {
+        id: 'cust_acme_corp',
+        email: 'billing@acmewidgets.com',
+        name: 'Acme Widgets Ltd',
+        tenureDays: 140,
+        tier: 'enterprise',
+        riskScore: 5,
+      },
+      {
+        id: 'cust_solo_dev',
+        email: 'alex@devstudio.io',
+        name: 'Alex Rivera',
+        tenureDays: 12,
+        tier: 'starter',
+        riskScore: 18,
+      },
+      {
+        id: 'cust_suspicious_user',
+        email: 'temp9921@ghostmail.net',
+        name: 'John Doe',
+        tenureDays: 2,
+        tier: 'free',
+        riskScore: 82,
+      },
+    ];
+
+    for (const cust of defaultCustomers) {
+      this.customers.set(cust.id, cust);
+    }
+
+    const defaultInvoices: InvoiceRecord[] = [
+      {
+        id: 'inv_acme_001',
+        customerId: 'cust_acme_corp',
+        amountCents: 4900,
+        currency: 'USD',
+        status: 'paid',
+        issuedAt: new Date(Date.now() - 4 * 86400000).toISOString(),
+      },
+      {
+        id: 'inv_acme_002',
+        customerId: 'cust_acme_corp',
+        amountCents: 18000,
+        currency: 'USD',
+        status: 'paid',
+        issuedAt: new Date(Date.now() - 2 * 86400000).toISOString(),
+      },
+      {
+        id: 'inv_solo_001',
+        customerId: 'cust_solo_dev',
+        amountCents: 2900,
+        currency: 'USD',
+        status: 'paid',
+        issuedAt: new Date(Date.now() - 6 * 86400000).toISOString(),
+      },
+    ];
+
+    for (const inv of defaultInvoices) {
+      this.invoices.set(inv.id, inv);
+    }
+  }
+
+  public appendAudit(
+    actor: 'SYSTEM' | 'OPERATOR',
+    actionType: string,
+    entityId: string,
+    details: Record<string, unknown>,
+    operatorId?: string
+  ): AuditEntry {
+    const entry: AuditEntry = {
+      id: `audit_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      timestamp: new Date().toISOString(),
+      actor,
+      operatorId,
+      actionType,
+      entityId,
+      details,
+    };
+    this.auditLogs.push(entry);
+    return entry;
+  }
+}
+
+export const db = new MemoryStore();
