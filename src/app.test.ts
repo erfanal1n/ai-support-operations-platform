@@ -127,4 +127,55 @@ describe('health endpoint', () => {
     expect(invalidFilter.statusCode).toBe(422);
     expect(missingTicket.statusCode).toBe(404);
   });
+
+  it('creates and replays an idempotent refund proposal', async () => {
+    const store = new MemoryStore();
+    const app = buildApp(store);
+    apps.push(app);
+    const payload = {
+      invoiceId: 'inv_solo_001',
+      policyId: 'POL-REFUND-STANDARD',
+      amountCents: 2900,
+    };
+    const headers = { 'idempotency-key': 'refund-proposal-solo-001' };
+    const request = {
+      method: 'POST' as const,
+      url: '/api/tickets/ticket_solo_duplicate_charge/refund-proposals',
+      headers,
+      payload,
+    };
+
+    const first = await app.inject(request);
+    const replay = await app.inject(request);
+    const conflict = await app.inject({ ...request, payload: { ...payload, amountCents: 2800 } });
+
+    expect(first.statusCode).toBe(201);
+    expect(first.json().proposal.requiresHumanApproval).toBe(true);
+    expect(replay.statusCode).toBe(200);
+    expect(replay.json().replayed).toBe(true);
+    expect(replay.json().proposal.id).toBe(first.json().proposal.id);
+    expect(conflict.statusCode).toBe(409);
+    expect(store.proposals.size).toBe(1);
+    expect(store.tickets.get('ticket_solo_duplicate_charge')?.status).toBe('pending_approval');
+    expect(store.auditLogs.filter(({ actionType }) => actionType === 'REFUND_PROPOSED')).toHaveLength(1);
+  });
+
+  it('requires an idempotency key before creating a refund proposal', async () => {
+    const store = new MemoryStore();
+    const app = buildApp(store);
+    apps.push(app);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/tickets/ticket_solo_duplicate_charge/refund-proposals',
+      payload: {
+        invoiceId: 'inv_solo_001',
+        policyId: 'POL-REFUND-STANDARD',
+        amountCents: 2900,
+      },
+    });
+
+    expect(response.statusCode).toBe(422);
+    expect(store.proposals.size).toBe(0);
+  });
 });

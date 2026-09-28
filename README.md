@@ -9,6 +9,7 @@ Refund assessment is read-only. It never issues a refund or changes an invoice.
 - `GET /health` reports whether the API is running.
 - `POST /api/tickets` validates a request, creates an open ticket for a seeded customer, and writes an audit entry.
 - `GET /api/tickets` lists the queue; ticket detail includes the customer's invoices and matched policy phrases.
+- `POST /api/tickets/:ticketId/refund-proposals` records a policy-checked proposal and requires an idempotency key.
 - Refund assessment checks invoice ownership and state, remaining balance, policy window, amount limit, and customer tenure.
 - Policy keyword search returns the matched phrases alongside each policy.
 - The in-memory store starts with synthetic tickets, customers, invoices, and policies.
@@ -46,6 +47,17 @@ curl -X POST http://127.0.0.1:3000/api/tickets \
 
 The API returns `201` with the created ticket. Invalid bodies return `422`; unknown customer IDs return `404`.
 
+## Propose a refund
+
+```sh
+curl -X POST http://127.0.0.1:3000/api/tickets/ticket_solo_duplicate_charge/refund-proposals \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: refund-proposal-solo-001" \
+  -d '{"invoiceId":"inv_solo_001","policyId":"POL-REFUND-STANDARD","amountCents":2900}'
+```
+
+This case requires operator approval because the customer account is under 30 days old. Repeating the request with the same key returns the same proposal; using that key with different input returns `409`.
+
 ## Checks
 
 ```sh
@@ -59,6 +71,6 @@ The current phrase-search baseline finds the expected policy in 5 of 6 synthetic
 
 ## Current limits
 
-This is still a local prototype. Tickets and audit entries disappear when the process stops. The API has no authentication, and the refund assessment is not connected to an HTTP action route. Do not use real customer data or expose this server to the internet.
+This is still a local prototype. Tickets, proposals, and audit entries disappear when the process stops. The API has no authentication, and proposals cannot be approved or executed yet. Do not use real customer data or expose this server to the internet.
 
 There is no model provider, vector retrieval, approval screen, or frontend yet. The phrase-search baseline is intentionally simple; the missed scenario is kept in the evaluation set so later retrieval changes can be compared against it.
