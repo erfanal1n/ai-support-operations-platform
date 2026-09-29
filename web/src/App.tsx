@@ -10,6 +10,7 @@ import {
   logoutOperator,
   triageTicket,
   type SessionStatus,
+  type TriageProgress,
 } from './api';
 import type { TicketContext, TicketStatus, TicketSummary, TicketTriageResult } from './types';
 
@@ -92,16 +93,30 @@ function elapsedLabel(durationMs: number): string {
   return durationMs < 1000 ? `${durationMs} ms` : `${(durationMs / 1000).toFixed(1)} s`;
 }
 
+function triageStatus(progress: TriageProgress | null): string {
+  if (!progress) return 'Reviewing the case and its evidence…';
+  const labels: Record<TriageProgress['stage'], string> = {
+    ticket_loaded: 'Reading the case…',
+    policies_retrieved: 'Checking the policy…',
+    invoices_retrieved: 'Checking the invoices…',
+    drafting: 'Preparing a reply draft…',
+    review_ready: 'Preparing the review…',
+  };
+  return labels[progress.stage];
+}
+
 function TriageReview({
   context,
   enabled,
   pending,
+  progress,
   result,
   onRun,
 }: {
   context: TicketContext;
   enabled: boolean;
   pending: boolean;
+  progress: TriageProgress | null;
   result: TicketTriageResult | null;
   onRun: () => void;
 }) {
@@ -125,7 +140,7 @@ function TriageReview({
           {pending ? 'Reviewing…' : result ? 'Run again' : 'Run triage'}
         </button>
       </div>
-      {pending && <p className="empty-note" role="status">Reviewing the case and its evidence…</p>}
+      {pending && <p className="empty-note" role="status">{triageStatus(progress)}</p>}
       {result && (
         <div className="triage-result" aria-live="polite">
           <div className="triage-recommendation">
@@ -180,6 +195,7 @@ interface TicketDetailProps {
   triageEnabled: boolean;
   triage: TicketTriageResult | null;
   triagePending: boolean;
+  triageProgress: TriageProgress | null;
   operatorId: string;
   canReview: boolean;
   authenticated: boolean;
@@ -191,7 +207,7 @@ interface TicketDetailProps {
   onTriage: () => void;
 }
 
-function TicketDetail({ context, triageEnabled, triage, triagePending, operatorId, canReview, authenticated, actionPending, onOperatorChange, onPropose, onDecision, onExecute, onTriage }: TicketDetailProps) {
+function TicketDetail({ context, triageEnabled, triage, triagePending, triageProgress, operatorId, canReview, authenticated, actionPending, onOperatorChange, onPropose, onDecision, onExecute, onTriage }: TicketDetailProps) {
   const { ticket, customer, invoices, relevantPolicies, proposals } = context;
   const refundableInvoices = invoices.filter((invoice) => invoice.status !== 'disputed' && invoice.amountCents > invoice.refundedAmountCents);
   const refundPolicies = relevantPolicies.filter((policy) => policy.category === 'refund');
@@ -253,7 +269,7 @@ function TicketDetail({ context, triageEnabled, triage, triagePending, operatorI
         <blockquote>{ticket.rawMessage}</blockquote>
       </section>
 
-      <TriageReview context={context} enabled={triageEnabled} pending={triagePending} result={triage} onRun={onTriage} />
+      <TriageReview context={context} enabled={triageEnabled} pending={triagePending} progress={triageProgress} result={triage} onRun={onTriage} />
 
       <section className="evidence-grid">
         <div className="evidence-card">
@@ -363,7 +379,9 @@ export default function App() {
     result: TicketTriageResult;
   } | null>(null);
   const [triagePending, setTriagePending] = useState(false);
+  const [triageProgress, setTriageProgress] = useState<TriageProgress | null>(null);
   const triageController = useRef<AbortController | null>(null);
+  const triageRunId = useRef<{ ticketId: string; id: string } | null>(null);
   const [sessionReady, setSessionReady] = useState(false);
   const [sessionError, setSessionError] = useState('');
   const [loginId, setLoginId] = useState('');
@@ -405,11 +423,19 @@ export default function App() {
     const controller = new AbortController();
     triageController.current?.abort();
     triageController.current = controller;
+    const runId = triageRunId.current?.ticketId === ticketId
+      ? triageRunId.current.id
+      : crypto.randomUUID();
+    triageRunId.current = { ticketId, id: runId };
     setTriagePending(true);
+    setTriageProgress(null);
     setError('');
     try {
-      const { triage } = await triageTicket(ticketId, controller.signal);
+      const { triage } = await triageTicket(ticketId, runId, controller.signal, (progress) => {
+        if (!controller.signal.aborted) setTriageProgress(progress);
+      });
       if (controller.signal.aborted) return;
+      triageRunId.current = null;
       setTriageRun({ ticketId, refreshSequence, result: triage });
     } catch (reason: unknown) {
       if (!controller.signal.aborted) {
@@ -447,6 +473,8 @@ export default function App() {
       await logoutOperator();
       triageController.current?.abort();
       triageController.current = null;
+      triageRunId.current = null;
+      setTriageProgress(null);
       setSession((current) => ({
         authRequired: true,
         operator: null,
@@ -575,6 +603,7 @@ export default function App() {
               triageEnabled={session?.triageEnabled ?? false}
               triage={triageRun?.ticketId === context.ticket.id && triageRun.refreshSequence === refreshSequence ? triageRun.result : null}
               triagePending={triagePending}
+              triageProgress={triageProgress}
               operatorId={currentOperatorId}
               canReview={canReview}
               authenticated={authenticated}

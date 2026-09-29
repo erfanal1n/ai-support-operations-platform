@@ -20,7 +20,7 @@ class Settings(BaseSettings):
 
     port: int = Field(default=3000, gt=0)
     host: str = "127.0.0.1"
-    node_env: Literal["development", "test", "production"] = "development"
+    app_env: Literal["development", "test", "production"] = "development"
     auth_mode: Literal["disabled", "session"] = "disabled"
     session_secret: str | None = None
     support_operator_tokens: list[OperatorCredential] = Field(default_factory=list)
@@ -30,8 +30,7 @@ class Settings(BaseSettings):
     ai_triage_mode: Literal["disabled", "openai"] = "disabled"
     openai_api_key: str | None = None
     openai_embedding_model: str = "text-embedding-3-small"
-    openai_triage_model: str = "gpt-6-luna"
-    redis_url: str | None = None
+    openai_triage_model: str = "gpt-5.6-luna"
     log_level: Literal["critical", "error", "warning", "info", "debug"] = "info"
 
     @model_validator(mode="after")
@@ -53,7 +52,7 @@ class Settings(BaseSettings):
             raise ValueError("OPENAI_API_KEY is required for semantic retrieval")
         if self.ai_triage_mode == "openai" and not self.openai_api_key:
             raise ValueError("OPENAI_API_KEY is required when AI triage is enabled")
-        if self.node_env == "production":
+        if self.app_env == "production":
             if self.auth_mode != "session":
                 raise ValueError("Session authentication is required in production")
             if self.storage_mode != "postgres":

@@ -56,8 +56,68 @@ export function fetchTicket(ticketId: string, signal?: AbortSignal): Promise<Tic
   return request<TicketContext>(`/api/tickets/${encodeURIComponent(ticketId)}`, { signal });
 }
 
-export function triageTicket(ticketId: string, signal?: AbortSignal): Promise<{ triage: TicketTriageResult }> {
-  return request(`/api/tickets/${encodeURIComponent(ticketId)}/triage`, { method: 'POST', signal });
+export interface TriageProgress {
+  stage: 'ticket_loaded' | 'policies_retrieved' | 'invoices_retrieved' | 'drafting' | 'review_ready';
+}
+
+export async function triageTicket(
+  ticketId: string,
+  runId: string,
+  signal: AbortSignal,
+  onProgress: (progress: TriageProgress) => void
+): Promise<{ triage: TicketTriageResult }> {
+  const response = await fetch(`/api/tickets/${encodeURIComponent(ticketId)}/triage/stream`, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'X-Triage-Run-Id': runId },
+    signal,
+  });
+
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as ApiErrorBody | null;
+    throw new Error(body?.error?.message ?? `Request failed (${response.status})`);
+  }
+  if (!response.body) throw new Error('The server did not start the triage stream');
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let result: TicketTriageResult | null = null;
+  let streamError: Error | null = null;
+
+  function dispatch(block: string) {
+    let event = 'message';
+    const data: string[] = [];
+
+    for (const line of block.split(/\r?\n/)) {
+      if (line.startsWith('event:')) event = line.slice(6).trim();
+      if (line.startsWith('data:')) data.push(line.slice(5).trimStart());
+    }
+
+    if (!data.length) return;
+    const payload = JSON.parse(data.join('\n')) as TriageProgress | TicketTriageResult | { message?: string };
+    if (event === 'progress' && 'stage' in payload) onProgress(payload);
+    if (event === 'result') result = payload as TicketTriageResult;
+    if (event === 'error') {
+      streamError = new Error('message' in payload && payload.message ? payload.message : 'Triage could not be completed.');
+    }
+  }
+
+  while (true) {
+    const { done, value } = await reader.read();
+    buffer += decoder.decode(value, { stream: !done });
+    const blocks = buffer.split(/\r?\n\r?\n/);
+    buffer = blocks.pop() ?? '';
+    for (const block of blocks) dispatch(block);
+    if (done) {
+      if (buffer.trim()) dispatch(buffer);
+      break;
+    }
+  }
+
+  if (streamError) throw streamError;
+  if (!result) throw new Error('The triage stream ended before a result was returned');
+  return { triage: result };
 }
 
 export function createRefundProposal(

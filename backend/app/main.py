@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import json
 import logging
+import time
+import uuid
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from backend.app.auth import (
@@ -28,9 +31,8 @@ from backend.app.errors import (
     UnauthorizedError,
     ValidationError,
 )
-from backend.app.memory_repository import MemorySupportRepository
-from backend.app.postgres_repository import PostgresSupportRepository
 from backend.app.repository import SupportRepository
+from backend.app.repository_factory import create_repository
 from backend.app.retrieval import PolicySearchEngine
 from backend.app.schemas import (
     CreateTicketRequest,
@@ -41,6 +43,7 @@ from backend.app.schemas import (
 )
 from backend.app.search_factory import create_policy_search
 from backend.app.settings import Settings, get_settings
+from backend.app.triage_factory import create_triage_agent
 
 logger = logging.getLogger("support.api")
 _PUBLIC_ENDPOINTS = {
@@ -131,24 +134,31 @@ def create_app(
     policy_search: PolicySearchEngine | None = None,
 ) -> FastAPI:
     config = settings or get_settings()
-    store = repository or _build_repository(config)
+    store = repository or create_repository(config)
+    policy_retriever = policy_search or create_policy_search(config, store)
+    agent = triage_agent or create_triage_agent(config, store, policy_retriever)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         await store.open()
         try:
+            if agent is not None:
+                await agent.open()
             yield
         finally:
+            if agent is not None:
+                await agent.close()
             await store.close()
 
     app = FastAPI(title="Support Operations API", version="0.2.0", lifespan=lifespan)
     app.state.repository = store
     app.state.settings = config
-    app.state.triage_agent = triage_agent
-    policy_retriever = policy_search or create_policy_search(config, store)
+    app.state.triage_agent = agent
 
     @app.middleware("http")
     async def resolve_operator(request: Request, call_next):
+        started_at = time.perf_counter()
+        request_id = uuid.uuid4().hex
         request.state.operator = None
         if (
             config.auth_mode == "session"
@@ -158,8 +168,19 @@ def create_app(
             if request.state.operator is None:
                 error = UnauthorizedError()
                 body = {"error": {"code": error.code, "message": str(error)}}
-                return JSONResponse(status_code=error.status_code, content=body)
-        return await call_next(request)
+                response = JSONResponse(status_code=error.status_code, content=body)
+        else:
+            response = await call_next(request)
+        response.headers["X-Request-ID"] = request_id
+        logger.info(
+            "request_complete request_id=%s method=%s path=%s status=%d duration_ms=%d",
+            request_id,
+            request.method,
+            request.url.path,
+            response.status_code,
+            round((time.perf_counter() - started_at) * 1000),
+        )
+        return response
 
     @app.exception_handler(AppError)
     async def app_error_handler(_: Request, error: AppError) -> JSONResponse:
@@ -212,7 +233,7 @@ def create_app(
         return {
             "authRequired": config.auth_mode == "session",
             "operator": await _request_operator(request, store, config),
-            "triageEnabled": triage_agent is not None,
+            "triageEnabled": agent is not None,
         }
 
     @app.post("/api/session/login")
@@ -232,7 +253,7 @@ def create_app(
         credential = next(
             item for item in config.support_operator_tokens if item.id == operator["id"]
         )
-        issued = issue_session(credential, secret, config.node_env == "production")
+        issued = issue_session(credential, secret, config.app_env == "production")
         await store.create_operator_session(issued)
         await store.clear_login_attempts(attempt_key)
         response.headers.append("Set-Cookie", issued["cookie"])
@@ -243,7 +264,7 @@ def create_app(
         signed = read_session(request.headers.get("cookie"), config.session_secret or "")
         if signed:
             await store.delete_operator_session(signed.session_hash)
-        response.headers.append("Set-Cookie", clear_session_cookie(config.node_env == "production"))
+        response.headers.append("Set-Cookie", clear_session_cookie(config.app_env == "production"))
         return {"ok": True}
 
     @app.get("/api/tickets")
@@ -269,20 +290,64 @@ def create_app(
         return await store.get_ticket_context(ticket_id, hits)
 
     @app.post("/api/tickets/{ticket_id}/triage")
-    async def triage_ticket(ticket_id: str, request: Request) -> dict[str, Any]:
+    async def triage_ticket(
+        ticket_id: str,
+        request: Request,
+        response: Response,
+    ) -> dict[str, Any]:
         _require_agent(request, config)
         ticket_id = _checked_id(ticket_id, "Ticket ID")
         if await store.get_ticket(ticket_id) is None:
             raise NotFoundError("Ticket", ticket_id)
-        if triage_agent is None:
+        if agent is None:
             raise ServiceUnavailableError("AI ticket triage is not enabled")
+        run_id = request.headers.get("X-Triage-Run-Id") or uuid.uuid4().hex
+        if len(run_id) < 16 or len(run_id) > 128:
+            raise ValidationError("Triage run ID is invalid")
+        response.headers["X-Triage-Run-Id"] = run_id
         try:
-            return {"triage": await triage_agent.triage(ticket_id)}
+            return {"triage": await agent.triage(ticket_id, run_id)}
         except AppError:
             raise
         except Exception as error:
             logger.error("Ticket triage failed: %s", type(error).__name__)
             raise ServiceUnavailableError("AI ticket triage is temporarily unavailable") from error
+
+    @app.post("/api/tickets/{ticket_id}/triage/stream")
+    async def stream_ticket_triage(ticket_id: str, request: Request) -> StreamingResponse:
+        _require_agent(request, config)
+        ticket_id = _checked_id(ticket_id, "Ticket ID")
+        if await store.get_ticket(ticket_id) is None:
+            raise NotFoundError("Ticket", ticket_id)
+        if agent is None:
+            raise ServiceUnavailableError("AI ticket triage is not enabled")
+        run_id = request.headers.get("X-Triage-Run-Id") or uuid.uuid4().hex
+        if len(run_id) < 16 or len(run_id) > 128:
+            raise ValidationError("Triage run ID is invalid")
+
+        async def events():
+            try:
+                async for item in agent.stream(ticket_id, run_id):
+                    body = json.dumps(item["data"], separators=(",", ":"), ensure_ascii=False)
+                    yield f"event: {item['event']}\ndata: {body}\n\n"
+            except Exception as error:
+                logger.error("Ticket triage stream failed: %s", type(error).__name__)
+                body = json.dumps(
+                    {"message": "Triage could not be completed. Retry with the same run ID."},
+                    separators=(",", ":"),
+                )
+                yield f"event: error\ndata: {body}\n\n"
+
+        return StreamingResponse(
+            events(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache, no-transform",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+                "X-Triage-Run-Id": run_id,
+            },
+        )
 
     @app.post("/api/tickets", status_code=201)
     async def create_ticket(payload: CreateTicketRequest, request: Request) -> dict[str, Any]:
@@ -353,13 +418,6 @@ def create_app(
         return JSONResponse(status_code=response.status_code, content=result)
 
     return app
-
-
-def _build_repository(settings: Settings) -> SupportRepository:
-    if settings.storage_mode == "postgres":
-        assert settings.database_url is not None
-        return PostgresSupportRepository(settings.database_url)
-    return MemorySupportRepository()
 
 
 app = create_app()
