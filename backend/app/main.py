@@ -169,6 +169,8 @@ def create_app(
                 error = UnauthorizedError()
                 body = {"error": {"code": error.code, "message": str(error)}}
                 response = JSONResponse(status_code=error.status_code, content=body)
+            else:
+                response = await call_next(request)
         else:
             response = await call_next(request)
         response.headers["X-Request-ID"] = request_id

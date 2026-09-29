@@ -1,35 +1,17 @@
 {
   "name": "ai-support-operations-platform",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "type": "module",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "uv run python -m backend.app.run --reload",
     "dev:web": "pnpm --filter @support/console dev",
-    "build": "tsc",
+    "start": "uv run python -m backend.app.run",
+    "auth:config": "uv run python -m backend.app.generate_credentials",
+    "mcp": "uv run python -m backend.app.mcp_server",
+    "db:migrate": "uv run python -m backend.app.migrate",
+    "eval:retrieval": "uv run python -m backend.app.evaluate_policy_search",
+    "build": "pnpm build:web",
     "build:web": "pnpm --filter @support/console build",
-    "start": "node dist/index.js",
-    "auth:config": "tsx src/auth/generate-credentials.ts",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "db:migrate": "tsx src/data/migrate.ts",
-    "eval:retrieval": "tsx src/evals/run-policy-search.ts",
-    "eval:triage": "tsx src/evals/run-ticket-triage.ts",
-    "typecheck": "tsc --noEmit"
-  },
-  "dependencies": {
-    "@fastify/cors": "^9.0.1",
-    "dotenv": "^18.0.4",
-    "fastify": "^4.26.2",
-    "openai": "^7.23.0",
-    "pg": "^8.23.0",
-    "zod": "^3.22.4"
-  },
-  "devDependencies": {
-    "@types/node": "^20.11.24",
-    "@types/pg": "^8.23.1",
-    "tsx": "^4.7.1",
-    "typescript": "^5.3.3",
-    "vitest": "^1.3.1"
+    "typecheck": "pnpm --filter @support/console exec tsc -p tsconfig.json --noEmit"
   }
 }

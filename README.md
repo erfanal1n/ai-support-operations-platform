@@ -1,137 +1,131 @@
 # AI Support Operations Platform
 
-A local support workflow prototype for billing questions. It records customer tickets and checks refund requests against explicit policy rules before any action is taken.
+A support case workflow built with FastAPI, PostgreSQL, and a React console. It brings ticket context, policy evidence, refund review, and an optional AI drafted response into one operator workflow.
 
-Assessment decides eligibility. A separate execution step updates the synthetic invoice record; it does not move money through a payment provider.
+Refund execution updates a synthetic invoice record. The project does not connect to a payment processor or move money.
 
-## What works now
+## Run it
 
-- `GET /health` reports whether the API is running.
-- `POST /api/tickets` validates a request, creates an open ticket for a seeded customer, and writes an audit entry.
-- `GET /api/tickets` lists the queue; ticket detail includes the customer's invoices and matched policy phrases.
-- `POST /api/tickets/:ticketId/refund-proposals` records a policy-checked proposal and requires an idempotency key.
-- `POST /api/refund-proposals/:proposalId/decision` records an operator approval or rejection.
-- `POST /api/refund-proposals/:proposalId/execute` re-checks policy and updates the invoice record once.
-- Optional session authentication separates support-agent access from supervisor decisions.
-- Refund assessment checks invoice ownership and state, remaining balance, policy window, amount limit, and customer tenure.
-- Policy search returns the matched policy and any exact phrases found in the request.
-- Optional AI triage uses retrieved policy and invoice evidence to draft a response for operator review.
-- Memory and PostgreSQL storage start with the same synthetic tickets, customers, invoices, and policies.
-
-```mermaid
-flowchart LR
-  Console[React support console] -->|HTTP| API[Fastify API]
-  API -->|Zod validation| TicketService[Ticket service]
-  TicketService --> Store[(Memory or PostgreSQL)]
-  TicketService --> Audit[Audit log]
-  RefundRequest[Refund request] --> Assessment[Refund assessment]
-  Policy[Refund policy] --> Assessment
-```
-
-## Run locally
-
-Requirements: Node.js 20.19 or newer and pnpm.
-
-Start the API in one terminal:
+The local workflow does not need an API key. Docker Compose starts PostgreSQL, applies the migrations, and serves the console and API:
 
 ```sh
-pnpm install
-pnpm dev
+docker compose up --build
 ```
 
-Start the console in another terminal:
+Open [http://127.0.0.1:4173](http://127.0.0.1:4173). The API is also available at [http://127.0.0.1:3000](http://127.0.0.1:3000); its health route is `/health`.
+
+For local development, install Python 3.13, uv, Node.js 24, and pnpm 11.7. Then run:
+
+```sh
+uv sync --all-groups
+pnpm install --frozen-lockfile
+```
+
+Start the API and console in separate terminals:
+
+```sh
+pnpm dev
+```
 
 ```sh
 pnpm dev:web
 ```
 
-Open `http://127.0.0.1:5173`. The API listens on `127.0.0.1:3000`; Vite proxies the console's API requests to it.
+The API uses seeded in-memory data by default. The Vite console runs at [http://127.0.0.1:5173](http://127.0.0.1:5173) and proxies API calls to port 3000.
 
-The console can search and filter the queue, inspect invoice and policy evidence, run an optional AI triage, create refund proposals, record an operator decision, and execute approved or auto-eligible proposals. Triage is available when configured and returns an editable reply draft for staff review. Execution updates the synthetic invoice record; it does not move money.
+## Case workflow
 
-## Authentication
-
-Local development keeps authentication disabled by default. Enable session mode with `AUTH_MODE=session`, then generate an operator token and session secret:
-
-```sh
-pnpm auth:config -- operator-17 supervisor
+```mermaid
+flowchart LR
+  Console[React console] --> API[FastAPI]
+  API --> Repo[Memory or PostgreSQL repository]
+  API --> Policy[Policy retrieval]
+  API --> Refund[Refund assessment]
+  Refund --> Proposal[Proposal and approval]
+  Proposal --> Audit[Audit record]
 ```
 
-Copy the generated values into `.env`; keep them out of Git. The console exchanges the token at sign-in for an eight-hour, HTTP-only, same-site cookie. The token is not saved in browser storage. An `agent` can review cases and create proposals. A `supervisor` can also approve, reject, and execute refunds. Decisions record the signed-in operator ID; the development mode's operator label is not authentication.
-
-Sign-in allows five attempts for each IP and operator ID in a 15-minute window. PostgreSQL stores only a keyed hash of that pair, and a successful sign-in clears its counter. A blocked request returns `429` with a `Retry-After` header.
-
-Production mode refuses to start unless PostgreSQL, session authentication, and operator credentials are configured. Production cookies use the `Secure` flag, so serve the app over HTTPS. Operator tokens are configured outside the app; there is no user-management screen or external identity provider. Add operators by appending entries to the `SUPPORT_OPERATOR_TOKENS` JSON array.
+- Ticket, invoice, customer, and policy context stays together in the case view.
+- Refund proposals check invoice ownership and state, remaining balance, policy window, amount limit, and customer tenure.
+- Proposals require an idempotency key. Repeating a request returns its saved result; reusing a key with different input is rejected.
+- Supervisor approval and refund recording are separate actions. Both are idempotent and audited.
+- Optional session authentication distinguishes agents from supervisors. Login attempts are limited and stored as keyed hashes.
+- `X-Request-ID` and request duration are returned and logged for each API request.
 
 ## PostgreSQL
 
-PostgreSQL is optional; memory storage remains the default. Start the local database, copy `.env.example` to `.env`, set `STORAGE_MODE=postgres`, then apply the schema and seed data:
+Memory storage is useful while changing the API. PostgreSQL persists tickets, refund proposals, decisions, invoice updates, audit records, operator sessions, login limits, policy vectors, and AI workflow checkpoints.
+
+To run only the database for local development:
 
 ```sh
-docker compose up -d
+docker compose up -d postgres
+```
+
+Copy `.env.example` to `.env`, set `STORAGE_MODE=postgres`, and use the local connection string already shown there. Then apply migrations and start the API:
+
+```sh
 pnpm db:migrate
 pnpm dev
 ```
 
-The API checks that the schema is present at startup. PostgreSQL transactions persist tickets, proposals, approvals, invoice updates, idempotency responses, and audit entries. The sample rows are synthetic.
+The migration runner records file checksums and refuses to run if an applied migration has changed.
 
-## Policy retrieval
+## Authentication
 
-Keyword search is the default and works without an API key. To use semantic search, copy `.env.example` to `.env`, set `POLICY_RETRIEVAL_MODE=semantic`, and provide an OpenAI API key. The selected embedding model can be changed with `OPENAI_EMBEDDING_MODEL`.
-
-Semantic mode embeds policy text once per server process and each ticket message when its details are requested. It combines cosine similarity with a small exact-keyword boost. Embeddings live in memory and are rebuilt after restart. Ticket messages and policy text are sent to OpenAI only in semantic mode; keep synthetic data in this prototype.
-
-## Ticket triage
-
-Triage is disabled by default. To enable it, set `AI_TRIAGE_MODE=openai` and provide `OPENAI_API_KEY`; `OPENAI_TRIAGE_MODEL` selects the model. `POST /api/tickets/:ticketId/triage` returns a short case summary, a reply draft, a suggested next step, and the evidence IDs used.
-
-The agent has two read-only tools scoped to the selected ticket: policy search and that customer's invoices. Its output is schema-validated, evidence IDs are checked against tool results, and every response requires operator review. It cannot approve or execute refunds. The response includes elapsed time, model-call count, and token totals when the provider returns usage. When enabled, ticket text and the retrieved policy and invoice evidence are sent to OpenAI; use synthetic data here.
-
-Run `pnpm eval:triage` with triage enabled to score five synthetic cases for action accuracy, evidence citations, prompt-injection handling, and unchanged case state. The report includes per-case latency, p50/p95 latency, model-call count, and token usage when the provider returns it. These five synthetic cases are a functional evaluation, not a production latency benchmark. The eval makes live model calls and exits with a non-zero status if any case fails.
-
-## Create a ticket
-
-The demo store accepts these customer IDs: `cust_acme_corp`, `cust_solo_dev`, and `cust_suspicious_user`.
+Authentication is off in local development. Generate credentials with:
 
 ```sh
-curl -X POST http://127.0.0.1:3000/api/tickets \
-  -H "Content-Type: application/json" \
-  -d '{"customerId":"cust_acme_corp","subject":"Duplicate charge","rawMessage":"I see two charges for this month."}'
+pnpm auth:config
 ```
 
-The API returns `201` with the created ticket. Invalid bodies return `422`; unknown customer IDs return `404`.
+Copy the printed `SESSION_SECRET` and `SUPPORT_OPERATOR_TOKENS` values to `.env`, then set `AUTH_MODE=session`. Agents can review cases and create proposals. Supervisors can also approve, reject, and record refunds. Session cookies are HTTP-only, same-site, and eight hours long; production cookies also require HTTPS.
 
-## Propose a refund
+Production settings require PostgreSQL and session authentication. Compose uses the local-only `support` database password unless `POSTGRES_PASSWORD` is set; keep the default bound to loopback and never expose it to a public network.
 
-```sh
-curl -X POST http://127.0.0.1:3000/api/tickets/ticket_solo_duplicate_charge/refund-proposals \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: refund-proposal-solo-001" \
-  -d '{"invoiceId":"inv_solo_001","policyId":"POL-REFUND-STANDARD","amountCents":2900}'
-```
+## Policy retrieval and triage
 
-This case requires operator approval because the customer account is under 30 days old. Repeating the request with the same key returns the same proposal; using that key with different input returns `409`.
-
-The decision endpoint takes `{"decision":"APPROVE","operatorId":"operator-17"}` (or `REJECT`) and its own idempotency key. It changes proposal and ticket state, but does not issue a refund.
-
-Execution uses another idempotency key. It only runs for auto-eligible proposals or proposals already approved by an operator. The refund is recorded against the synthetic invoice fixture.
-
-## Checks
+Keyword policy search works without external services. Run its small, keyless fixture evaluation with:
 
 ```sh
-pnpm test
-pnpm typecheck
-pnpm build
-pnpm build:web
 pnpm eval:retrieval
 ```
 
-`pnpm eval:retrieval` runs the six synthetic scenarios using the configured retrieval mode. The phrase-search baseline finds the expected policy in 5 of 6 scenarios at `k=3` (recall@3: 83.3%). This small fixture set is a baseline, not a production quality claim.
+Semantic search is optional. Set `POLICY_RETRIEVAL_MODE=semantic` and `OPENAI_API_KEY`; policy embeddings are keyed by source hash and model and stored in PostgreSQL when PostgreSQL storage is enabled. The search combines cosine similarity with an exact phrase match boost.
 
-The PostgreSQL repository checks run when `TEST_DATABASE_URL` is set. Point `DATABASE_URL` and `TEST_DATABASE_URL` at a disposable `support_ops_test` database, run `pnpm db:migrate`, then `pnpm test`. The checks cover ticket and audit persistence, session revocation, concurrent login attempts, and the refund proposal, approval, and execution flow with duplicate requests. GitHub Actions starts a temporary PostgreSQL database and runs the migrations before the suite.
+AI triage is also optional and disabled by default. Set `AI_TRIAGE_MODE=openai` and `OPENAI_API_KEY` to enable it. The React console consumes progress events from the streaming endpoint. LangGraph loads the case, retrieves policy and invoice evidence, drafts a response, then validates the schema and every cited ID. The result always requires operator review. It cannot approve or record a refund.
 
-## Current limits
+Ticket text and selected evidence are sent to the configured model when semantic search or AI triage is enabled. The response is requested with provider storage disabled. Successful LangGraph runs delete their checkpoint; incomplete runs retain the minimum retry state until a retry completes. Use non-sensitive data with external providers.
 
-The memory storage option resets when the process stops. Development mode disables authentication; production requires PostgreSQL and session mode. Operator credentials are managed through environment configuration. Keep the app behind HTTPS and a trusted network boundary, and use synthetic customer data.
+The MCP server exposes three read-only tools over stdio: list cases, read one case with evidence, and search policies. It has no approval or refund execution tool. Start it with `pnpm mcp`; configure the command in an MCP host to use the repository directory and `uv run python -m backend.app.mcp_server`.
 
-The console runs through Vite and is not served by the Fastify production server. The AI triage endpoint is optional and disabled by default. Semantic policy vectors remain in memory; there is no streaming response or external identity provider. The phrase-search baseline is intentionally simple; the missed scenario is kept in the evaluation set so later retrieval changes can be compared against it.
+See [the security notes](docs/security.md) for data boundaries, model inputs, and deployment requirements.
+
+## API surface
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/health` | API and repository health |
+| `GET` | `/api/session` | Current operator and enabled features |
+| `POST` | `/api/session/login` | Start an operator session |
+| `POST` | `/api/session/logout` | Revoke the current session |
+| `GET` | `/api/tickets` | List the case queue |
+| `GET` | `/api/tickets/{ticketId}` | Load case, invoice, proposal, and policy context |
+| `POST` | `/api/tickets/{ticketId}/triage/stream` | Stream optional triage progress and result |
+| `POST` | `/api/tickets/{ticketId}/refund-proposals` | Assess and save a refund proposal |
+| `POST` | `/api/refund-proposals/{proposalId}/decision` | Record a supervisor decision |
+| `POST` | `/api/refund-proposals/{proposalId}/execute` | Record an approved refund against its invoice |
+
+## Development checks
+
+```sh
+uv run pytest
+uv run ruff check backend
+pnpm build:web
+```
+
+PostgreSQL integration checks run when `TEST_DATABASE_URL` is set. GitHub Actions starts a disposable PostgreSQL service with pgvector and runs the Python checks and console build.
+
+## Scope
+
+Seed records are fabricated and use reserved or example email domains. The invoice changes are database records only; no card, bank, billing, or payment-provider API is configured. Authentication is disabled by default for local use, so use the production requirements and HTTPS before any real deployment. External identity management and a live payment integration are outside this project.

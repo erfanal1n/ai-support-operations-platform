@@ -4,9 +4,9 @@ services:
     environment:
       POSTGRES_DB: support_ops
       POSTGRES_USER: support
-      POSTGRES_PASSWORD: support
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-support}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - support-postgres:/var/lib/postgresql/data
     healthcheck:
@@ -14,6 +14,59 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    command: ["uv", "run", "--no-sync", "python", "-m", "backend.app.migrate"]
+    environment: &database-environment
+      APP_ENV: development
+      STORAGE_MODE: postgres
+      DATABASE_URL: postgresql://support:${POSTGRES_PASSWORD:-support}@postgres:5432/support_ops
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    command: ["uv", "run", "--no-sync", "python", "-m", "backend.app.run"]
+    environment:
+      <<: *database-environment
+      APP_ENV: ${APP_ENV:-development}
+      HOST: 0.0.0.0
+      PORT: 3000
+      AUTH_MODE: ${AUTH_MODE:-disabled}
+      SESSION_SECRET: ${SESSION_SECRET:-}
+      SUPPORT_OPERATOR_TOKENS: '${SUPPORT_OPERATOR_TOKENS:-[]}'
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      POLICY_RETRIEVAL_MODE: ${POLICY_RETRIEVAL_MODE:-keyword}
+      OPENAI_EMBEDDING_MODEL: ${OPENAI_EMBEDDING_MODEL:-text-embedding-3-small}
+      AI_TRIAGE_MODE: ${AI_TRIAGE_MODE:-disabled}
+      OPENAI_TRIAGE_MODEL: ${OPENAI_TRIAGE_MODEL:-gpt-5.6-luna}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3000/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    ports:
+      - "127.0.0.1:4173:80"
+    depends_on:
+      api:
+        condition: service_healthy
 
 volumes:
   support-postgres:
