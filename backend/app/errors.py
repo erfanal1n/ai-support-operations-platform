@@ -70,11 +70,11 @@ class UnauthorizedError(AppError):
 
 
 class TooManyRequestsError(AppError):
-    def __init__(self) -> None:
+    def __init__(self, retry_after_seconds: int = 60) -> None:
         super().__init__("Too many sign-in attempts. Try again later.", "E_RATE_LIMITED", 429)
+        self.retry_after_seconds = retry_after_seconds
 
 
 class ForbiddenError(AppError):
     def __init__(self, message: str = "This action requires supervisor access") -> None:
         super().__init__(message, "E_FORBIDDEN", 403)
-

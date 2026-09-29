@@ -82,7 +82,7 @@ def read_session(cookie_header: str | None, secret: str) -> SignedSession | None
     prefix = f"{COOKIE_NAME}="
     raw = next(
         (
-            part.strip()[len(prefix):]
+            part.strip()[len(prefix) :]
             for part in (cookie_header or "").split(";")
             if part.strip().startswith(prefix)
         ),
@@ -111,4 +111,3 @@ def read_session(cookie_header: str | None, secret: str) -> SignedSession | None
     if not isinstance(expires, int) or expires <= now_ms or expires > latest_allowed:
         return None
     return SignedSession(hashlib.sha256(session_id.encode()).hexdigest(), expires)
-
