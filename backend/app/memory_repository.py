@@ -220,6 +220,9 @@ class MemorySupportRepository:
         self.operator_sessions: dict[str, dict[str, str]] = {}
         self.login_attempts: dict[str, dict[str, int]] = {}
 
+    async def open(self) -> None:
+        return None
+
     async def health(self) -> None:
         return None
 
@@ -279,7 +282,7 @@ class MemorySupportRepository:
         return sorted(invoices, key=lambda item: item["issuedAt"], reverse=True)
 
     async def list_policies(self) -> list[dict[str, Any]]:
-        return [item.copy() for item in self.policies.values()]
+        return [self.policies[key].copy() for key in sorted(self.policies)]
 
     async def list_tickets(self, status: str | None = None) -> list[dict[str, Any]]:
         results = []

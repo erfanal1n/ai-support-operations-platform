@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any
 
@@ -29,6 +30,7 @@ from backend.app.errors import (
 )
 from backend.app.memory_repository import MemorySupportRepository
 from backend.app.policy_search import search_policies
+from backend.app.postgres_repository import PostgresSupportRepository
 from backend.app.repository import SupportRepository
 from backend.app.schemas import (
     CreateTicketRequest,
@@ -127,8 +129,17 @@ def create_app(
     triage_agent: Any | None = None,
 ) -> FastAPI:
     config = settings or get_settings()
-    store = repository or MemorySupportRepository()
-    app = FastAPI(title="Support Operations API", version="0.2.0")
+    store = repository or _build_repository(config)
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI):
+        await store.open()
+        try:
+            yield
+        finally:
+            await store.close()
+
+    app = FastAPI(title="Support Operations API", version="0.2.0", lifespan=lifespan)
     app.state.repository = store
     app.state.settings = config
     app.state.triage_agent = triage_agent
@@ -335,6 +346,13 @@ def create_app(
         return JSONResponse(status_code=response.status_code, content=result)
 
     return app
+
+
+def _build_repository(settings: Settings) -> SupportRepository:
+    if settings.storage_mode == "postgres":
+        assert settings.database_url is not None
+        return PostgresSupportRepository(settings.database_url)
+    return MemorySupportRepository()
 
 
 app = create_app()
