@@ -47,7 +47,7 @@ pnpm dev:web
 
 Open `http://127.0.0.1:5173`. The API listens on `127.0.0.1:3000`; Vite proxies the console's API requests to it.
 
-The console can search and filter the queue, inspect invoice and policy evidence, create refund proposals, record an operator decision, and execute approved or auto-eligible proposals. Execution updates the synthetic invoice record; it does not move money.
+The console can search and filter the queue, inspect invoice and policy evidence, run an optional AI triage, create refund proposals, record an operator decision, and execute approved or auto-eligible proposals. Triage is available when configured and returns an editable reply draft for staff review. Execution updates the synthetic invoice record; it does not move money.
 
 ## Authentication
 

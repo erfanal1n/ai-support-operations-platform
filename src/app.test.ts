@@ -20,6 +20,16 @@ describe('health endpoint', () => {
     expect(response.json()).toEqual({ status: 'ok' });
   });
 
+  it('reports whether AI triage is configured', async () => {
+    const app = buildApp();
+    apps.push(app);
+
+    const response = await app.inject({ method: 'GET', url: '/api/session' });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ triageEnabled: false });
+  });
+
   it('accepts a valid ticket and records it with an audit entry', async () => {
     const store = new MemoryStore();
     const app = buildApp(store);

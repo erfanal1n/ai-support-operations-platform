@@ -49,3 +49,22 @@ export interface TicketContext {
     executedAt?: string;
   }>;
 }
+
+export interface TicketTriageResult {
+  summary: string;
+  replyDraft: string;
+  recommendedAction: 'refund_review' | 'manual_review' | 'no_action';
+  decisionBasis: string;
+  policyIds: string[];
+  invoiceIds: string[];
+  requiresHumanReview: true;
+  metrics: {
+    durationMs: number;
+    modelCalls: number;
+    tokenUsage: {
+      inputTokens: number;
+      outputTokens: number;
+      totalTokens: number;
+    } | null;
+  };
+}

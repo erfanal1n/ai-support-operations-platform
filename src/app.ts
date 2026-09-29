@@ -146,6 +146,7 @@ export function buildApp(
   app.get('/api/session', async (request) => ({
     authRequired: env.AUTH_MODE === 'session',
     operator: await requestOperator(request, repository),
+    triageEnabled: Boolean(triageAgent),
   }));
 
   app.post('/api/session/login', async (request, reply) => {

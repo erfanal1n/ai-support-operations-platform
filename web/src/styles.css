@@ -27,6 +27,7 @@ svg { width: 16px; height: 16px; flex: none; }
 button:focus-visible,
 input:focus-visible,
 select:focus-visible,
+textarea:focus-visible,
 summary:focus-visible {
   outline: 2px solid #4987b1;
   outline-offset: 1px;
@@ -487,6 +488,35 @@ h1, h2, h3 { letter-spacing: normal; }
   font-size: 13px;
   line-height: 1.5;
 }
+.triage-result { display: grid; gap: 8px; }
+.triage-recommendation { display: flex; align-items: baseline; gap: 8px; }
+.triage-recommendation span,
+.triage-evidence dt,
+.triage-draft > span { color: var(--muted); font-size: 11px; }
+.triage-recommendation strong { color: #355b40; font-size: 12px; font-weight: 600; }
+.triage-summary,
+.triage-basis { margin: 0; color: #414b52; font-size: 12px; line-height: 1.5; }
+.triage-basis { color: #68727a; }
+.triage-evidence { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 0; }
+.triage-evidence div { min-width: 0; }
+.triage-evidence dt { margin-bottom: 2px; }
+.triage-evidence dd { margin: 0; color: #414b52; font-size: 12px; line-height: 1.45; }
+.triage-draft { display: grid; gap: 4px; color: #4b555c; font-size: 12px; font-weight: 500; }
+.triage-draft textarea {
+  width: 100%;
+  min-height: 72px;
+  padding: 7px;
+  resize: vertical;
+  border: 1px solid #c3cbd1;
+  border-radius: 0;
+  color: #30383e;
+  background: #fff;
+  font: inherit;
+  line-height: 1.5;
+}
+.triage-run-details { padding-top: 2px; border-top: 1px solid #e2e6e9; }
+.triage-run-details summary { color: #68727a; font-size: 11px; cursor: pointer; }
+.triage-run-details p { margin: 5px 0 0; color: #68727a; font-size: 11px; font-variant-numeric: tabular-nums; }
 
 .evidence-grid {
   display: grid;
@@ -677,6 +707,7 @@ h1, h2, h3 { letter-spacing: normal; }
   .ticket-status { font-size: 10px; }
   .detail-stack { padding: 12px 12px; }
   .evidence-grid { grid-template-columns: 1fr; }
+  .triage-evidence { grid-template-columns: 1fr; }
   .evidence-card { padding-right: 0; }
   .evidence-card + .evidence-card {
     padding-left: 0;

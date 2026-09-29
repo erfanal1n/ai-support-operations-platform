@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import {
   createRefundProposal,
   decideRefundProposal,
@@ -8,9 +8,10 @@ import {
   fetchTickets,
   loginOperator,
   logoutOperator,
+  triageTicket,
   type SessionStatus,
 } from './api';
-import type { TicketContext, TicketStatus, TicketSummary } from './types';
+import type { TicketContext, TicketStatus, TicketSummary, TicketTriageResult } from './types';
 
 type QueueFilter = 'all' | 'pending_approval';
 
@@ -81,6 +82,79 @@ function initials(name: string): string {
     .join('');
 }
 
+function actionLabel(action: TicketTriageResult['recommendedAction']): string {
+  if (action === 'refund_review') return 'Refund review';
+  if (action === 'manual_review') return 'Manual review';
+  return 'No action';
+}
+
+function elapsedLabel(durationMs: number): string {
+  return durationMs < 1000 ? `${durationMs} ms` : `${(durationMs / 1000).toFixed(1)} s`;
+}
+
+function TriageReview({
+  context,
+  enabled,
+  pending,
+  result,
+  onRun,
+}: {
+  context: TicketContext;
+  enabled: boolean;
+  pending: boolean;
+  result: TicketTriageResult | null;
+  onRun: () => void;
+}) {
+  const [replyDraft, setReplyDraft] = useState('');
+
+  useEffect(() => setReplyDraft(result?.replyDraft ?? ''), [result]);
+
+  if (!enabled) return null;
+
+  const policies = result?.policyIds.map((id) =>
+    context.relevantPolicies.find((policy) => policy.id === id)?.title ?? 'Policy reference'
+  );
+  const invoices = result?.invoiceIds.map((id) => invoiceLabel(context.invoices, id));
+  const usage = result?.metrics.tokenUsage;
+
+  return (
+    <section className="action-card triage-card" aria-labelledby="triage-heading">
+      <div className="section-heading compact">
+        <h3 id="triage-heading">Triage review</h3>
+        <button className="primary-action" type="button" disabled={pending} onClick={onRun}>
+          {pending ? 'Reviewing…' : result ? 'Run again' : 'Run triage'}
+        </button>
+      </div>
+      {pending && <p className="empty-note" role="status">Reviewing the case and its evidence…</p>}
+      {result && (
+        <div className="triage-result" aria-live="polite">
+          <div className="triage-recommendation">
+            <span>Recommendation</span>
+            <strong>{actionLabel(result.recommendedAction)}</strong>
+          </div>
+          <p className="triage-summary">{result.summary}</p>
+          <p className="triage-basis">{result.decisionBasis}</p>
+          <dl className="triage-evidence">
+            <div><dt>Policies</dt><dd>{policies?.length ? [...new Set(policies)].join(', ') : 'None cited'}</dd></div>
+            <div><dt>Invoices</dt><dd>{invoices?.length ? [...new Set(invoices)].join(', ') : 'None cited'}</dd></div>
+          </dl>
+          <label className="triage-draft">
+            <span>Reply draft</span>
+            <textarea value={replyDraft} onChange={(event) => setReplyDraft(event.target.value)} rows={3} />
+          </label>
+          <details className="triage-run-details">
+            <summary>Run details</summary>
+            <p>
+              {elapsedLabel(result.metrics.durationMs)} · {result.metrics.modelCalls} model calls
+              {usage ? ` · ${new Intl.NumberFormat('en-US').format(usage.totalTokens)} tokens` : ''}
+            </p>
+          </details>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function TicketRow({ ticket, selected, onSelect }: { ticket: TicketSummary; selected: boolean; onSelect: () => void }) {
   return (
     <button className={`ticket-row${selected ? ' selected' : ''}`} aria-pressed={selected} onClick={onSelect} type="button">
@@ -103,6 +177,9 @@ function TicketRow({ ticket, selected, onSelect }: { ticket: TicketSummary; sele
 
 interface TicketDetailProps {
   context: TicketContext;
+  triageEnabled: boolean;
+  triage: TicketTriageResult | null;
+  triagePending: boolean;
   operatorId: string;
   canReview: boolean;
   authenticated: boolean;
@@ -111,9 +188,10 @@ interface TicketDetailProps {
   onPropose: (input: { invoiceId: string; policyId: string; amountCents: number }) => void;
   onDecision: (proposalId: string, decision: 'APPROVE' | 'REJECT') => void;
   onExecute: (proposalId: string) => void;
+  onTriage: () => void;
 }
 
-function TicketDetail({ context, operatorId, canReview, authenticated, actionPending, onOperatorChange, onPropose, onDecision, onExecute }: TicketDetailProps) {
+function TicketDetail({ context, triageEnabled, triage, triagePending, operatorId, canReview, authenticated, actionPending, onOperatorChange, onPropose, onDecision, onExecute, onTriage }: TicketDetailProps) {
   const { ticket, customer, invoices, relevantPolicies, proposals } = context;
   const refundableInvoices = invoices.filter((invoice) => invoice.status !== 'disputed' && invoice.amountCents > invoice.refundedAmountCents);
   const refundPolicies = relevantPolicies.filter((policy) => policy.category === 'refund');
@@ -174,6 +252,8 @@ function TicketDetail({ context, operatorId, canReview, authenticated, actionPen
         </div>
         <blockquote>{ticket.rawMessage}</blockquote>
       </section>
+
+      <TriageReview context={context} enabled={triageEnabled} pending={triagePending} result={triage} onRun={onTriage} />
 
       <section className="evidence-grid">
         <div className="evidence-card">
@@ -277,6 +357,13 @@ export default function App() {
   const [actionPending, setActionPending] = useState(false);
   const [operatorId, setOperatorId] = useState('');
   const [session, setSession] = useState<SessionStatus | null>(null);
+  const [triageRun, setTriageRun] = useState<{
+    ticketId: string;
+    refreshSequence: number;
+    result: TicketTriageResult;
+  } | null>(null);
+  const [triagePending, setTriagePending] = useState(false);
+  const triageController = useRef<AbortController | null>(null);
   const [sessionReady, setSessionReady] = useState(false);
   const [sessionError, setSessionError] = useState('');
   const [loginId, setLoginId] = useState('');
@@ -314,13 +401,39 @@ export default function App() {
     }
   }
 
+  async function runTriage(ticketId: string) {
+    const controller = new AbortController();
+    triageController.current?.abort();
+    triageController.current = controller;
+    setTriagePending(true);
+    setError('');
+    try {
+      const { triage } = await triageTicket(ticketId, controller.signal);
+      if (controller.signal.aborted) return;
+      setTriageRun({ ticketId, refreshSequence, result: triage });
+    } catch (reason: unknown) {
+      if (!controller.signal.aborted) {
+        setError(reason instanceof Error ? reason.message : 'Could not review this case.');
+      }
+    } finally {
+      if (triageController.current === controller) {
+        triageController.current = null;
+        setTriagePending(false);
+      }
+    }
+  }
+
   async function signIn(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setLoginPending(true);
     setError('');
     try {
       const result = await loginOperator(loginId.trim(), loginToken);
-      setSession({ authRequired: true, operator: result.operator });
+      setSession((current) => ({
+        authRequired: true,
+        operator: result.operator,
+        triageEnabled: current?.triageEnabled ?? false,
+      }));
       setLoginToken('');
     } catch (reason: unknown) {
       setError(reason instanceof Error ? reason.message : 'Sign-in failed.');
@@ -332,10 +445,17 @@ export default function App() {
   async function signOut() {
     try {
       await logoutOperator();
-      setSession({ authRequired: true, operator: null });
+      triageController.current?.abort();
+      triageController.current = null;
+      setSession((current) => ({
+        authRequired: true,
+        operator: null,
+        triageEnabled: current?.triageEnabled ?? false,
+      }));
       setTickets([]);
       setSelectedId(null);
       setContext(null);
+      setTriageRun(null);
       setError('');
     } catch (reason: unknown) {
       setError(reason instanceof Error ? reason.message : 'Sign-out failed.');
@@ -452,6 +572,9 @@ export default function App() {
           <div className="detail-panel panel">
             {detailLoading ? <div className="detail-loading">Loading case details…</div> : context ? <TicketDetail
               context={context}
+              triageEnabled={session?.triageEnabled ?? false}
+              triage={triageRun?.ticketId === context.ticket.id && triageRun.refreshSequence === refreshSequence ? triageRun.result : null}
+              triagePending={triagePending}
               operatorId={currentOperatorId}
               canReview={canReview}
               authenticated={authenticated}
@@ -460,6 +583,7 @@ export default function App() {
               onPropose={(input) => runAction(() => createRefundProposal(context.ticket.id, input, `proposal-${crypto.randomUUID()}`))}
               onDecision={(proposalId, decision) => runAction(() => decideRefundProposal(proposalId, decision, currentOperatorId.trim(), `decision-${crypto.randomUUID()}`))}
               onExecute={(proposalId) => runAction(() => executeRefundProposal(proposalId, `execute-${crypto.randomUUID()}`))}
+              onTriage={() => runTriage(context.ticket.id)}
             /> : <div className="detail-loading">Choose a case to review.</div>}
           </div>
         </section>

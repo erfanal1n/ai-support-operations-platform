@@ -1,4 +1,4 @@
-import type { TicketContext, TicketStatus, TicketSummary } from './types';
+import type { TicketContext, TicketStatus, TicketSummary, TicketTriageResult } from './types';
 
 export interface OperatorSession {
   id: string;
@@ -8,6 +8,7 @@ export interface OperatorSession {
 export interface SessionStatus {
   authRequired: boolean;
   operator: OperatorSession | null;
+  triageEnabled: boolean;
 }
 
 interface ApiErrorBody {
@@ -53,6 +54,10 @@ export async function fetchTickets(signal?: AbortSignal): Promise<TicketSummary[
 
 export function fetchTicket(ticketId: string, signal?: AbortSignal): Promise<TicketContext> {
   return request<TicketContext>(`/api/tickets/${encodeURIComponent(ticketId)}`, { signal });
+}
+
+export function triageTicket(ticketId: string, signal?: AbortSignal): Promise<{ triage: TicketTriageResult }> {
+  return request(`/api/tickets/${encodeURIComponent(ticketId)}/triage`, { method: 'POST', signal });
 }
 
 export function createRefundProposal(
