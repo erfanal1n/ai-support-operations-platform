@@ -67,3 +67,13 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - run: pnpm build:web
+
+  containers:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - run: docker compose config --quiet
+
+      - run: docker compose build

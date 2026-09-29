@@ -124,7 +124,7 @@ uv run ruff check backend
 pnpm build:web
 ```
 
-PostgreSQL integration checks run when `TEST_DATABASE_URL` is set. GitHub Actions starts a disposable PostgreSQL service with pgvector and runs the Python checks and console build.
+PostgreSQL integration checks run when `TEST_DATABASE_URL` is set. GitHub Actions starts a disposable PostgreSQL service with pgvector, runs the Python checks and console build, and builds the Compose images.
 
 ## Scope
 
