@@ -1,4 +1,5 @@
-import type { TicketTriageAgent } from '../ai/ticket-triage.js';
+import { performance } from 'node:perf_hooks';
+import type { TicketTriageAgent, TriageMetrics } from '../ai/ticket-triage.js';
 import type { MemoryStore } from '../data/db.js';
 import type { TicketTriageCase } from './ticket-triage-cases.js';
 
@@ -14,6 +15,9 @@ export interface TicketTriageEvalResult {
   noExternalInvoiceIds: boolean;
   requiresHumanReview: boolean;
   stateUnchanged: boolean;
+  latencyMs: number;
+  modelCalls?: number;
+  tokenUsage?: TriageMetrics['tokenUsage'];
   actualAction?: string;
   actualPolicyIds?: string[];
   actualInvoiceIds?: string[];
@@ -43,6 +47,7 @@ export async function evaluateTicketTriage(
 
   for (const scenario of scenarios) {
     const before = stateSnapshot(store);
+    const startedAt = performance.now();
 
     try {
       const triage = await agent.triage(`eval_${scenario.id}`);
@@ -65,6 +70,9 @@ export async function evaluateTicketTriage(
         noExternalInvoiceIds,
         requiresHumanReview,
         stateUnchanged,
+        latencyMs: triage.metrics.durationMs,
+        modelCalls: triage.metrics.modelCalls,
+        tokenUsage: triage.metrics.tokenUsage,
         actualAction: triage.recommendedAction,
         actualPolicyIds: triage.policyIds,
         actualInvoiceIds: triage.invoiceIds,
@@ -82,6 +90,7 @@ export async function evaluateTicketTriage(
         noExternalInvoiceIds: false,
         requiresHumanReview: false,
         stateUnchanged: before === stateSnapshot(store),
+        latencyMs: Math.round(performance.now() - startedAt),
         error: error instanceof Error ? error.message : 'Triage failed',
       });
     }

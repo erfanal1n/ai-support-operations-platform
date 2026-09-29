@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import { performance } from 'node:perf_hooks';
 import { z } from 'zod';
 import type { ResponseInput } from 'openai/resources/responses/responses.js';
 import type { TicketTriageDataSource } from '../data/repository.js';
@@ -61,6 +62,16 @@ const resultFormat = {
   },
 } as const;
 
+export interface TriageMetrics {
+  durationMs: number;
+  modelCalls: number;
+  tokenUsage: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+  } | null;
+}
+
 export interface TicketTriage {
   summary: string;
   replyDraft: string;
@@ -69,6 +80,7 @@ export interface TicketTriage {
   policyIds: string[];
   invoiceIds: string[];
   requiresHumanReview: true;
+  metrics: TriageMetrics;
 }
 
 export class TicketTriageAgent {
@@ -84,6 +96,11 @@ export class TicketTriageAgent {
   }
 
   async triage(ticketId: string): Promise<TicketTriage> {
+    const startedAt = performance.now();
+    let modelCalls = 0;
+    let completeTokenUsage = true;
+    const tokenUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+
     const ticket = await this.data.getTicket(ticketId);
     if (!ticket) throw new Error(`Ticket '${ticketId}' was not found`);
 
@@ -120,11 +137,26 @@ export class TicketTriageAgent {
         max_output_tokens: 900,
         store: false,
       });
+      modelCalls += 1;
+      if (response.usage) {
+        tokenUsage.inputTokens += response.usage.input_tokens;
+        tokenUsage.outputTokens += response.usage.output_tokens;
+        tokenUsage.totalTokens += response.usage.total_tokens;
+      } else {
+        completeTokenUsage = false;
+      }
 
       const calls = response.output.filter((item) => item.type === 'function_call');
       if (calls.length === 0) {
         if (!policyEvidence || !invoiceEvidence) throw new Error('Triage did not collect all required evidence');
-        return this.parseResult(response.output_text, policyEvidence, invoiceEvidence);
+        return {
+          ...this.parseResult(response.output_text, policyEvidence, invoiceEvidence),
+          metrics: {
+            durationMs: Math.round(performance.now() - startedAt),
+            modelCalls,
+            tokenUsage: completeTokenUsage ? tokenUsage : null,
+          },
+        };
       }
       if (calls.length !== 1 || callCount === 4) throw new Error('Triage exceeded its tool call limit');
 
@@ -180,7 +212,7 @@ export class TicketTriageAgent {
     raw: string,
     policies: Array<{ id: string }>,
     invoices: Array<{ id: string }>
-  ): TicketTriage {
+  ): Omit<TicketTriage, 'metrics'> {
     const result = outputSchema.parse(JSON.parse(raw));
     const policyIds = new Set(policies.map(({ id }) => id));
     const invoiceIds = new Set(invoices.map(({ id }) => id));

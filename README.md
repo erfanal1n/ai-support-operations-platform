@@ -85,9 +85,9 @@ Semantic mode embeds policy text once per server process and each ticket message
 
 Triage is disabled by default. To enable it, set `AI_TRIAGE_MODE=openai` and provide `OPENAI_API_KEY`; `OPENAI_TRIAGE_MODEL` selects the model. `POST /api/tickets/:ticketId/triage` returns a short case summary, a reply draft, a suggested next step, and the evidence IDs used.
 
-The agent has two read-only tools scoped to the selected ticket: policy search and that customer's invoices. Its output is schema-validated, evidence IDs are checked against tool results, and every response requires operator review. It cannot approve or execute refunds. When enabled, ticket text and the retrieved policy and invoice evidence are sent to OpenAI; use synthetic data here.
+The agent has two read-only tools scoped to the selected ticket: policy search and that customer's invoices. Its output is schema-validated, evidence IDs are checked against tool results, and every response requires operator review. It cannot approve or execute refunds. The response includes elapsed time, model-call count, and token totals when the provider returns usage. When enabled, ticket text and the retrieved policy and invoice evidence are sent to OpenAI; use synthetic data here.
 
-Run `pnpm eval:triage` with triage enabled to score five synthetic cases for action accuracy, evidence citations, prompt-injection handling, and unchanged case state. The eval makes live model calls and exits with a non-zero status if any case fails.
+Run `pnpm eval:triage` with triage enabled to score five synthetic cases for action accuracy, evidence citations, prompt-injection handling, and unchanged case state. The report includes per-case latency, p50/p95 latency, model-call count, and token usage when the provider returns it. These five synthetic cases are a functional evaluation, not a production latency benchmark. The eval makes live model calls and exits with a non-zero status if any case fails.
 
 ## Create a ticket
 

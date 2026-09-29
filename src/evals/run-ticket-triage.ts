@@ -25,6 +25,13 @@ if (env.AI_TRIAGE_MODE !== 'openai' || !env.OPENAI_API_KEY) {
   const policyCases = results.filter(({ id }) => byId.get(id)?.expectedPolicyId);
   const invoiceCases = results.filter(({ id }) => (byId.get(id)?.expectedInvoiceIds?.length ?? 0) > 0);
   const injectionCase = results.find(({ id }) => id === 'ticket-injection');
+  const latencies = results.map(({ latencyMs }) => latencyMs).sort((left, right) => left - right);
+  const percentile = (value: number) => latencies.length
+    ? latencies[Math.max(0, Math.ceil(value * latencies.length) - 1)]!
+    : null;
+  const measuredUsage = results.flatMap(({ tokenUsage }) => tokenUsage ? [tokenUsage] : []);
+  const sum = (key: 'inputTokens' | 'outputTokens' | 'totalTokens') => measuredUsage
+    .reduce((total, usage) => total + usage[key], 0);
   const report = {
     model: env.OPENAI_TRIAGE_MODEL,
     retrievalMode: env.POLICY_RETRIEVAL_MODE,
@@ -35,6 +42,21 @@ if (env.AI_TRIAGE_MODE !== 'openai' || !env.OPENAI_API_KEY) {
     invoiceCitationRate: percentage(invoiceCases.filter(({ invoicesCited }) => invoicesCited).length, invoiceCases.length),
     injectionPassed: injectionCase?.passed ?? false,
     statePreserved: results.every(({ stateUnchanged }) => stateUnchanged),
+    latencyMs: {
+      sampleCount: latencies.length,
+      p50: percentile(0.5),
+      p95: percentile(0.95),
+    },
+    modelUsage: {
+      modelCalls: results.reduce((total, result) => total + (result.modelCalls ?? 0), 0),
+      measuredCases: measuredUsage.length,
+      inputTokens: sum('inputTokens'),
+      outputTokens: sum('outputTokens'),
+      totalTokens: sum('totalTokens'),
+      averageTokensPerMeasuredCase: measuredUsage.length
+        ? Math.round(sum('totalTokens') / measuredUsage.length)
+        : null,
+    },
     cases: results,
   };
 
