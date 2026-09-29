@@ -29,9 +29,9 @@ from backend.app.errors import (
     ValidationError,
 )
 from backend.app.memory_repository import MemorySupportRepository
-from backend.app.policy_search import search_policies
 from backend.app.postgres_repository import PostgresSupportRepository
 from backend.app.repository import SupportRepository
+from backend.app.retrieval import PolicySearchEngine
 from backend.app.schemas import (
     CreateTicketRequest,
     LoginRequest,
@@ -39,6 +39,7 @@ from backend.app.schemas import (
     RefundProposalRequest,
     TicketStatusFilter,
 )
+from backend.app.search_factory import create_policy_search
 from backend.app.settings import Settings, get_settings
 
 logger = logging.getLogger("support.api")
@@ -127,6 +128,7 @@ def create_app(
     settings: Settings | None = None,
     repository: SupportRepository | None = None,
     triage_agent: Any | None = None,
+    policy_search: PolicySearchEngine | None = None,
 ) -> FastAPI:
     config = settings or get_settings()
     store = repository or _build_repository(config)
@@ -143,6 +145,7 @@ def create_app(
     app.state.repository = store
     app.state.settings = config
     app.state.triage_agent = triage_agent
+    policy_retriever = policy_search or create_policy_search(config, store)
 
     @app.middleware("http")
     async def resolve_operator(request: Request, call_next):
@@ -258,7 +261,11 @@ def create_app(
         ticket = await store.get_ticket(ticket_id)
         if ticket is None:
             raise NotFoundError("Ticket", ticket_id)
-        hits = search_policies(await store.list_policies(), ticket["rawMessage"])
+        try:
+            hits = await policy_retriever.search(await store.list_policies(), ticket["rawMessage"])
+        except Exception as error:
+            logger.error("Policy retrieval failed: %s", type(error).__name__)
+            raise ServiceUnavailableError("Policy retrieval is temporarily unavailable") from error
         return await store.get_ticket_context(ticket_id, hits)
 
     @app.post("/api/tickets/{ticket_id}/triage")

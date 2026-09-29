@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import math
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -219,6 +220,7 @@ class MemorySupportRepository:
         self.audit_logs: list[dict[str, Any]] = []
         self.operator_sessions: dict[str, dict[str, str]] = {}
         self.login_attempts: dict[str, dict[str, int]] = {}
+        self.policy_embeddings: dict[tuple[str, str], dict[str, Any]] = {}
 
     async def open(self) -> None:
         return None
@@ -265,6 +267,44 @@ class MemorySupportRepository:
 
     async def clear_login_attempts(self, key: str) -> None:
         self.login_attempts.pop(key, None)
+
+    async def get_policy_embedding_hashes(
+        self, model: str, policy_ids: list[str]
+    ) -> dict[str, str]:
+        return {
+            policy_id: self.policy_embeddings[(policy_id, model)]["sourceHash"]
+            for policy_id in policy_ids
+            if (policy_id, model) in self.policy_embeddings
+        }
+
+    async def upsert_policy_embeddings(self, rows: list[dict[str, Any]]) -> None:
+        for row in rows:
+            self.policy_embeddings[(row["policyId"], row["model"])] = row.copy()
+
+    async def search_policy_embeddings(
+        self,
+        query_vector: list[float],
+        model: str,
+        policy_ids: list[str],
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        ids = set(policy_ids)
+        query_norm = math.sqrt(sum(value * value for value in query_vector))
+        if not query_norm:
+            raise ValueError("Embedding vector has zero magnitude")
+        matches = []
+        for (policy_id, indexed_model), item in self.policy_embeddings.items():
+            if indexed_model != model or policy_id not in ids:
+                continue
+            vector = item["embedding"]
+            vector_norm = math.sqrt(sum(value * value for value in vector))
+            if not vector_norm:
+                raise ValueError("Embedding vector has zero magnitude")
+            similarity = sum(a * b for a, b in zip(query_vector, vector, strict=True))
+            similarity /= query_norm * vector_norm
+            matches.append({"policyId": policy_id, "similarity": similarity})
+        matches.sort(key=lambda row: (-row["similarity"], row["policyId"]))
+        return matches[:limit]
 
     async def get_ticket(self, ticket_id: str) -> dict[str, Any] | None:
         item = self.tickets.get(ticket_id)

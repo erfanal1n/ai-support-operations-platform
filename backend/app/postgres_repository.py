@@ -8,6 +8,8 @@ from datetime import UTC, datetime
 from typing import Any
 
 import asyncpg
+from pgvector import Vector
+from pgvector.asyncpg import register_vector
 
 from backend.app.domain import assess_refund
 from backend.app.errors import (
@@ -134,7 +136,12 @@ class PostgresSupportRepository:
                 max_size=10,
                 timeout=5,
                 command_timeout=30,
+                init=self._register_vector,
             )
+
+    @staticmethod
+    async def _register_vector(connection: asyncpg.Connection) -> None:
+        await register_vector(connection)
 
     async def _pool(self) -> asyncpg.Pool:
         if self.pool is None:
@@ -245,6 +252,75 @@ class PostgresSupportRepository:
     async def clear_login_attempts(self, key: str) -> None:
         pool = await self._pool()
         await pool.execute("DELETE FROM auth_login_attempts WHERE attempt_key = $1", key)
+
+    async def get_policy_embedding_hashes(
+        self, model: str, policy_ids: list[str]
+    ) -> dict[str, str]:
+        if not policy_ids:
+            return {}
+        pool = await self._pool()
+        rows = await pool.fetch(
+            """
+            SELECT policy_id, source_hash FROM policy_embeddings
+            WHERE model = $1 AND policy_id = ANY($2::text[])
+            """,
+            model,
+            policy_ids,
+        )
+        return {row["policy_id"]: row["source_hash"] for row in rows}
+
+    async def upsert_policy_embeddings(self, rows: list[dict[str, Any]]) -> None:
+        if not rows:
+            return
+        pool = await self._pool()
+        async with pool.acquire() as connection:
+            async with connection.transaction():
+                await connection.executemany(
+                    """
+                    INSERT INTO policy_embeddings(policy_id, model, source_hash, embedding)
+                    VALUES ($1, $2, $3, $4)
+                    ON CONFLICT (policy_id, model) DO UPDATE SET
+                        source_hash = EXCLUDED.source_hash,
+                        embedding = EXCLUDED.embedding,
+                        updated_at = NOW()
+                    """,
+                    [
+                        (
+                            item["policyId"],
+                            item["model"],
+                            item["sourceHash"],
+                            Vector(item["embedding"]),
+                        )
+                        for item in rows
+                    ],
+                )
+
+    async def search_policy_embeddings(
+        self,
+        query_vector: list[float],
+        model: str,
+        policy_ids: list[str],
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        if not policy_ids:
+            return []
+        pool = await self._pool()
+        rows = await pool.fetch(
+            """
+            SELECT policy_id, 1 - (embedding <=> $1) AS similarity
+            FROM policy_embeddings
+            WHERE model = $2 AND policy_id = ANY($3::text[])
+            ORDER BY embedding <=> $1, policy_id
+            LIMIT $4
+            """,
+            Vector(query_vector),
+            model,
+            policy_ids,
+            limit,
+        )
+        return [
+            {"policyId": row["policy_id"], "similarity": float(row["similarity"])} for row in rows
+        ]
 
     async def get_ticket(self, ticket_id: str) -> dict[str, Any] | None:
         pool = await self._pool()

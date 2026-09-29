@@ -70,6 +70,27 @@ async def test_postgres_refund_workflow_is_atomic_and_idempotent():
         assert {item["replayed"] for item in results} == {False, True}
         assert results[0]["proposal"]["id"] == results[1]["proposal"]["id"]
 
+        vector_model = f"fixture-{suffix}"
+        vector = [0.0] * 1536
+        vector[0] = 1.0
+        await repository.upsert_policy_embeddings(
+            [
+                {
+                    "policyId": "POL-REFUND-STANDARD",
+                    "model": vector_model,
+                    "sourceHash": "a" * 64,
+                    "embedding": vector,
+                }
+            ]
+        )
+        assert await repository.get_policy_embedding_hashes(
+            vector_model, ["POL-REFUND-STANDARD"]
+        ) == {"POL-REFUND-STANDARD": "a" * 64}
+        neighbors = await repository.search_policy_embeddings(
+            vector, vector_model, ["POL-REFUND-STANDARD"], 1
+        )
+        assert neighbors == [{"policyId": "POL-REFUND-STANDARD", "similarity": 1.0}]
+
         execution = await repository.execute_refund_proposal(
             {
                 "proposalId": proposal_id,
@@ -90,6 +111,10 @@ async def test_postgres_refund_workflow_is_atomic_and_idempotent():
         if repository.pool is not None:
             async with repository.pool.acquire() as connection:
                 async with connection.transaction():
+                    await connection.execute(
+                        "DELETE FROM policy_embeddings WHERE model = $1",
+                        f"fixture-{suffix}",
+                    )
                     await connection.execute(
                         "DELETE FROM idempotency_records WHERE key LIKE $1",
                         f"%{suffix}%",

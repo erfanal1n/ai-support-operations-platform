@@ -19,7 +19,7 @@ jobs:
     timeout-minutes: 10
     services:
       postgres:
-        image: postgres:17-alpine
+        image: pgvector/pgvector:0.8.6-pg17-bookworm
         env:
           POSTGRES_DB: support_ops_python_test
           POSTGRES_USER: support
@@ -53,7 +53,7 @@ jobs:
     timeout-minutes: 10
     services:
       postgres:
-        image: postgres:17-alpine
+        image: pgvector/pgvector:0.8.6-pg17-bookworm
         env:
           POSTGRES_DB: support_ops_test
           POSTGRES_USER: support
